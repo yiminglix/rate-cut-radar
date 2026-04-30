@@ -114,7 +114,11 @@ function ChartPanel({
 function ChartSkeleton() {
   return (
     <div className="grid gap-4">
-      {["Brent 原油", "美债收益率曲线", "核心 PCE 与 Trimmed Mean PCE"].map(
+      {[
+        "Energy is the first inflation gate",
+        "The long end decides whether cuts are healthy",
+        "Inflation must cool without forcing stress",
+      ].map(
         (title) => (
           <section
             key={title}
@@ -178,8 +182,8 @@ export function RadarCharts({ series }: RadarChartsProps) {
   return (
     <div className="grid gap-4">
       <ChartPanel
-        title="Brent 原油"
-        subtitle="近 90 个有效交易日，观察油价是否从高位回落。"
+        title="Energy is the first inflation gate"
+        subtitle="Brent needs to stay off the highs for the cut story to stay clean."
       >
         <ResponsiveContainer
           width="100%"
@@ -219,8 +223,8 @@ export function RadarCharts({ series }: RadarChartsProps) {
       </ChartPanel>
 
       <ChartPanel
-        title="美债收益率曲线"
-        subtitle="2Y 代表政策预期，10Y/30Y 用来确认长端是否买账。"
+        title="The long end decides whether cuts are healthy"
+        subtitle="2Y can price cuts first; 10Y and 30Y decide whether the market believes them."
       >
         <ResponsiveContainer
           width="100%"
@@ -256,8 +260,8 @@ export function RadarCharts({ series }: RadarChartsProps) {
       </ChartPanel>
 
       <ChartPanel
-        title="核心 PCE 与 Trimmed Mean PCE"
-        subtitle="核心 PCE 转为月度动能，Trimmed Mean 使用 FRED 原始年化序列。"
+        title="Inflation must cool without forcing stress"
+        subtitle="Core PCE momentum and trimmed mean inflation need to slow together."
       >
         <ResponsiveContainer
           width="100%"

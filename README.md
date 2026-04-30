@@ -1,6 +1,19 @@
 # Rate Cut Radar
 
-Rate Cut Radar / 降息雷达 is a mobile-first macro dashboard for tracking whether a healthy rate cut expectation is forming. It combines oil, inflation, and Treasury market signals into a 0-100 score, a status label, signal cards, charts, and a Chinese daily brief.
+Rate Cut Radar / 降息雷达 is a mobile-first macro decision dashboard for tracking whether a healthy rate cut expectation is forming. It combines oil, inflation, and Treasury market signals into a 0-100 score, a current regime, daily change diagnostics, asset impact notes, charts, and a Chinese daily brief.
+
+## V1.5 Decision Layer
+
+The home screen now prioritizes daily decision-making:
+
+- Rate Cut Score with a large circular progress display
+- Day-over-day score change
+- Current Regime
+- Asset Impact Summary
+- What Changed Today: score delta, signal changes, and key oil/yield moves
+- Asset Impact for Hang Seng Tech, Nasdaq Growth, TLT, Gold, and BTC
+- Collapsed Daily Brief with a one-line executive summary by default
+- Conclusion-led chart titles instead of raw data labels
 
 ## Stack
 
@@ -112,7 +125,7 @@ src/components/RadarCharts.tsx
 src/lib/fred.ts              FRED fetcher and mock fallback
 src/lib/mock-data.ts         Series metadata and preview data
 src/lib/signals.ts           Signal colors, score, status
-src/lib/brief.ts             Chinese daily brief templates
+src/lib/brief.ts             Executive summary and Chinese daily brief templates
 src/lib/types.ts             Shared types
 ```
 

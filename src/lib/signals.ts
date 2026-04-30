@@ -1,9 +1,15 @@
 import type {
+  AssetBias,
+  AssetImpact,
   DashboardSeries,
+  MarketMove,
   RateCutRadar,
   RadarStatus,
+  ScoreDirection,
   SeriesPoint,
+  SignalChange,
   SignalColor,
+  SignalName,
   SignalResult,
 } from "./types";
 
@@ -33,6 +39,25 @@ function round(value: number, digits = 2): number {
 function formatBps(value: number): string {
   const prefix = value > 0 ? "+" : "";
   return `${prefix}${round(value, 1)} bps`;
+}
+
+function formatPct(value: number): string {
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${round(value, 2)}%`;
+}
+
+function latestPair(points: SeriesPoint[]): {
+  current: SeriesPoint;
+  previous: SeriesPoint;
+} | null {
+  const clean = validPoints(points);
+  if (clean.length < 2) return null;
+
+  const current = clean.at(-1);
+  const previous = clean.at(-2);
+  if (!current || !previous) return null;
+
+  return { current, previous };
 }
 
 function calculateOilSignal(points: SeriesPoint[]): SignalResult {
@@ -256,6 +281,290 @@ function calculateSignals(series: DashboardSeries) {
   };
 }
 
+const signalTitles: Record<SignalName, string> = {
+  oil: "Oil Signal",
+  inflation: "Inflation Signal",
+  bond: "Bond Market Signal",
+};
+
+function colorLabel(color: SignalColor): string {
+  if (color === "green") return "green";
+  if (color === "yellow") return "yellow";
+  return "red";
+}
+
+function signalChangeSummary(
+  title: string,
+  previousColor: SignalColor,
+  currentColor: SignalColor,
+): string {
+  if (previousColor === currentColor) {
+    return `${title} stayed ${colorLabel(currentColor)}.`;
+  }
+
+  const better =
+    (previousColor === "red" && currentColor !== "red") ||
+    (previousColor === "yellow" && currentColor === "green");
+
+  return `${title} moved from ${colorLabel(previousColor)} to ${colorLabel(
+    currentColor,
+  )}, ${better ? "improving the setup" : "weakening the setup"}.`;
+}
+
+function buildSignalChanges(
+  current: ReturnType<typeof calculateSignals>,
+  previous: ReturnType<typeof calculateSignals>,
+): SignalChange[] {
+  return (["oil", "inflation", "bond"] as SignalName[]).map((name) => {
+    const previousColor = previous[name].color;
+    const currentColor = current[name].color;
+
+    return {
+      name,
+      title: signalTitles[name],
+      previousColor,
+      currentColor,
+      changed: previousColor !== currentColor,
+      summary: signalChangeSummary(signalTitles[name], previousColor, currentColor),
+    };
+  });
+}
+
+function scoreDirection(delta: number): ScoreDirection {
+  if (delta > 0) return "up";
+  if (delta < 0) return "down";
+  return "flat";
+}
+
+function marketMove(
+  label: string,
+  change: number | null,
+  value: string,
+  detail: string,
+  supportiveWhenNegative: boolean,
+): MarketMove {
+  let tone: MarketMove["tone"] = "neutral";
+
+  if (change !== null && Math.abs(change) >= 0.01) {
+    const supportive = supportiveWhenNegative ? change < 0 : change > 0;
+    tone = supportive ? "supportive" : "risk";
+  }
+
+  return { label, value, detail, tone };
+}
+
+function buildKeyMoves(series: DashboardSeries): MarketMove[] {
+  const oil = latestPair(series.DCOILBRENTEU);
+  const twoYear = latestPair(series.DGS2);
+  const tenYear = latestPair(series.DGS10);
+  const thirtyYear = latestPair(series.DGS30);
+
+  const oilChangePct = oil
+    ? ((oil.current.value - oil.previous.value) / oil.previous.value) * 100
+    : null;
+  const twoYearBps = twoYear ? (twoYear.current.value - twoYear.previous.value) * 100 : null;
+  const tenYearBps = tenYear ? (tenYear.current.value - tenYear.previous.value) * 100 : null;
+  const thirtyYearBps = thirtyYear
+    ? (thirtyYear.current.value - thirtyYear.previous.value) * 100
+    : null;
+
+  return [
+    marketMove(
+      "Brent",
+      oilChangePct,
+      oilChangePct === null ? "N/A" : formatPct(oilChangePct),
+      oil ? `$${round(oil.current.value, 2)} latest` : "No usable oil print",
+      true,
+    ),
+    marketMove(
+      "2Y Treasury",
+      twoYearBps,
+      twoYearBps === null ? "N/A" : formatBps(twoYearBps),
+      twoYear ? `${round(twoYear.current.value, 2)}% latest` : "No usable 2Y print",
+      true,
+    ),
+    marketMove(
+      "10Y Treasury",
+      tenYearBps,
+      tenYearBps === null ? "N/A" : formatBps(tenYearBps),
+      tenYear ? `${round(tenYear.current.value, 2)}% latest` : "No usable 10Y print",
+      true,
+    ),
+    marketMove(
+      "30Y Treasury",
+      thirtyYearBps,
+      thirtyYearBps === null ? "N/A" : formatBps(thirtyYearBps),
+      thirtyYear ? `${round(thirtyYear.current.value, 2)}% latest` : "No usable 30Y print",
+      true,
+    ),
+  ];
+}
+
+function buildWhatChangedToday(
+  score: number,
+  previousScore: number,
+  signalChanges: SignalChange[],
+  keyMoves: MarketMove[],
+): RateCutRadar["whatChanged"] {
+  const delta = score - previousScore;
+  const changedSignals = signalChanges.filter((signal) => signal.changed);
+  const direction = scoreDirection(delta);
+
+  const summary =
+    direction === "up"
+      ? `Score improved by ${delta} points as macro inputs became more cut-friendly.`
+      : direction === "down"
+        ? `Score fell by ${Math.abs(delta)} points as the setup lost confirmation.`
+        : changedSignals.length > 0
+          ? "Score is unchanged, but the composition of signals shifted under the surface."
+          : "Score is unchanged; today's setup is more about confirmation than a fresh impulse.";
+
+  return {
+    scoreDelta: delta,
+    scoreDirection: direction,
+    summary,
+    signalChanges,
+    keyMoves,
+  };
+}
+
+function impactBiasClass(radar: {
+  score: number;
+  politicalCutRisk: boolean;
+  signals: ReturnType<typeof calculateSignals>;
+}): {
+  riskBeta: AssetBias;
+  duration: AssetBias;
+  gold: AssetBias;
+  btc: AssetBias;
+} {
+  if (radar.politicalCutRisk) {
+    return {
+      riskBeta: "volatile",
+      duration: "bearish",
+      gold: "bullish",
+      btc: "volatile",
+    };
+  }
+
+  if (radar.score >= 80) {
+    return {
+      riskBeta: "bullish",
+      duration: "bullish",
+      gold: radar.signals.inflation.color === "green" ? "neutral" : "bullish",
+      btc: "bullish",
+    };
+  }
+
+  if (radar.score >= 60) {
+    return {
+      riskBeta: "bullish",
+      duration: radar.signals.bond.color === "green" ? "bullish" : "neutral",
+      gold: "neutral",
+      btc: "volatile",
+    };
+  }
+
+  if (radar.score >= 40) {
+    return {
+      riskBeta: "volatile",
+      duration: radar.signals.bond.color === "red" ? "bearish" : "neutral",
+      gold: "neutral",
+      btc: "volatile",
+    };
+  }
+
+  return {
+    riskBeta: "bearish",
+    duration: "bearish",
+    gold: radar.signals.inflation.color === "red" ? "bullish" : "neutral",
+    btc: "bearish",
+  };
+}
+
+function buildAssetImpact(radar: {
+  score: number;
+  politicalCutRisk: boolean;
+  signals: ReturnType<typeof calculateSignals>;
+}): AssetImpact[] {
+  const bias = impactBiasClass(radar);
+
+  return [
+    {
+      asset: "Hang Seng Tech",
+      bias: bias.riskBeta,
+      summary:
+        bias.riskBeta === "bullish"
+          ? "Liquidity relief and lower discount rates support a beta catch-up."
+          : bias.riskBeta === "volatile"
+            ? "The tape can squeeze higher, but long-end confirmation is not clean enough."
+            : "Weak macro confirmation keeps high-beta China tech vulnerable.",
+    },
+    {
+      asset: "Nasdaq Growth",
+      bias: bias.riskBeta,
+      summary:
+        bias.riskBeta === "bullish"
+          ? "Lower rate pressure supports duration-heavy growth multiples."
+          : bias.riskBeta === "volatile"
+            ? "Growth can trade tactically, but rising long-end yields would cap upside."
+            : "The setup does not yet justify paying up for long-duration growth.",
+    },
+    {
+      asset: "TLT",
+      bias: bias.duration,
+      summary:
+        bias.duration === "bullish"
+          ? "The bond market is validating cuts, keeping long duration in play."
+          : bias.duration === "neutral"
+            ? "Short-end relief is not enough; wait for clearer 10Y/30Y confirmation."
+            : "Long-end resistance argues against chasing duration here.",
+    },
+    {
+      asset: "Gold",
+      bias: bias.gold,
+      summary:
+        bias.gold === "bullish"
+          ? "Policy-risk or inflation hedging demand can support gold even if growth assets wobble."
+          : "Gold is less central unless real yields or policy risk deteriorate again.",
+    },
+    {
+      asset: "BTC",
+      bias: bias.btc,
+      summary:
+        bias.btc === "bullish"
+          ? "Liquidity expectations and risk appetite are aligned enough for crypto beta."
+          : bias.btc === "volatile"
+            ? "Liquidity hopes help, but bond-market confirmation is too mixed for clean trend."
+            : "Weak liquidity confirmation leaves crypto exposed to risk-off reversals.",
+    },
+  ];
+}
+
+function assetImpactSummary(radar: {
+  score: number;
+  politicalCutRisk: boolean;
+  signals: ReturnType<typeof calculateSignals>;
+}): string {
+  if (radar.politicalCutRisk) {
+    return "Risk assets may react to short-end easing, but rising long-end yields make the trade fragile; favor optionality and hedges over clean beta.";
+  }
+
+  if (radar.score >= 80) {
+    return "Healthy cut expectations favor duration and quality beta: Nasdaq Growth, Hang Seng Tech, TLT and BTC all have a cleaner tailwind.";
+  }
+
+  if (radar.score >= 60) {
+    return "The trade is warming, not confirmed: growth beta can work, while TLT and BTC still need bond-market follow-through.";
+  }
+
+  if (radar.score >= 40) {
+    return "The setup is mixed; treat rallies as tactical until oil, inflation and the long end line up.";
+  }
+
+  return "The macro setup is not supportive; risk beta and long duration remain vulnerable.";
+}
+
 function statusForScore(score: number, politicalCutRisk: boolean): RadarStatus {
   if (politicalCutRisk) return "Political Cut Risk";
   if (score >= 80) return "Healthy Rate Cut Expectation";
@@ -301,6 +610,9 @@ export function calculateRateCutRadar(series: DashboardSeries): RateCutRadar {
 
   const politicalCutRisk = signals.bond.details.politicalCutRisk === true;
   const status = statusForScore(score, politicalCutRisk);
+  const signalChanges = buildSignalChanges(signals, previousSignals);
+  const keyMoves = buildKeyMoves(series);
+  const assetImpact = buildAssetImpact({ score, politicalCutRisk, signals });
 
   return {
     score,
@@ -309,6 +621,10 @@ export function calculateRateCutRadar(series: DashboardSeries): RateCutRadar {
     status,
     statusSummary: statusSummary(status),
     signals,
+    signalChanges,
+    whatChanged: buildWhatChangedToday(score, previousScore, signalChanges, keyMoves),
+    assetImpact,
+    assetImpactSummary: assetImpactSummary({ score, politicalCutRisk, signals }),
     politicalCutRisk,
   };
 }
