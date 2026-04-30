@@ -181,7 +181,13 @@ export function RadarCharts({ series }: RadarChartsProps) {
         title="Brent 原油"
         subtitle="近 90 个有效交易日，观察油价是否从高位回落。"
       >
-        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={1}
+          minHeight={1}
+          initialDimension={{ width: 360, height: 256 }}
+        >
           <LineChart data={oilData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#eceff3" vertical={false} />
             <XAxis
@@ -216,7 +222,13 @@ export function RadarCharts({ series }: RadarChartsProps) {
         title="美债收益率曲线"
         subtitle="2Y 代表政策预期，10Y/30Y 用来确认长端是否买账。"
       >
-        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={1}
+          minHeight={1}
+          initialDimension={{ width: 360, height: 256 }}
+        >
           <LineChart data={yieldData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#eceff3" vertical={false} />
             <XAxis
@@ -247,7 +259,13 @@ export function RadarCharts({ series }: RadarChartsProps) {
         title="核心 PCE 与 Trimmed Mean PCE"
         subtitle="核心 PCE 转为月度动能，Trimmed Mean 使用 FRED 原始年化序列。"
       >
-        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+        <ResponsiveContainer
+          width="100%"
+          height="100%"
+          minWidth={1}
+          minHeight={1}
+          initialDimension={{ width: 360, height: 256 }}
+        >
           <LineChart data={pceData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
             <CartesianGrid stroke="#eceff3" vertical={false} />
             <XAxis
