@@ -69,3 +69,23 @@ export function generateDailyBrief(
     radar,
   )}${assetPhrase(radar)}`;
 }
+
+export function generateExecutiveSummary(radar: RateCutRadar): string {
+  if (radar.politicalCutRisk) {
+    return "短端押注降息，但长端没有买账，今天更像政治化降息风险而不是健康宽松交易。";
+  }
+
+  if (radar.score >= 80) {
+    return "油价、通胀和美债正在形成同向确认，健康降息预期对久期和成长资产偏友好。";
+  }
+
+  if (radar.score >= 60) {
+    return "降息预期正在升温，但仍需要长端美债或通胀数据给出更强确认。";
+  }
+
+  if (radar.score >= 40) {
+    return "宏观信号分裂，当前更适合战术观察，而不是全面押注健康降息。";
+  }
+
+  return "降息预期缺少油价、通胀或债券市场配合，风险资产仍需防守。";
+}

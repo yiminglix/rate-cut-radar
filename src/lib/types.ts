@@ -53,6 +53,40 @@ export type RadarStatus =
   | "Political Cut Risk"
   | "Rate Cut Expectation Failed";
 
+export type ScoreDirection = "up" | "down" | "flat";
+
+export type SignalChange = {
+  name: SignalName;
+  title: string;
+  previousColor: SignalColor;
+  currentColor: SignalColor;
+  changed: boolean;
+  summary: string;
+};
+
+export type MarketMove = {
+  label: string;
+  value: string;
+  detail: string;
+  tone: "supportive" | "risk" | "neutral";
+};
+
+export type WhatChangedToday = {
+  scoreDelta: number;
+  scoreDirection: ScoreDirection;
+  summary: string;
+  signalChanges: SignalChange[];
+  keyMoves: MarketMove[];
+};
+
+export type AssetBias = "bullish" | "neutral" | "bearish" | "volatile";
+
+export type AssetImpact = {
+  asset: "Hang Seng Tech" | "Nasdaq Growth" | "TLT" | "Gold" | "BTC";
+  bias: AssetBias;
+  summary: string;
+};
+
 export type RateCutRadar = {
   score: number;
   previousScore: number;
@@ -64,5 +98,9 @@ export type RateCutRadar = {
     inflation: SignalResult;
     bond: SignalResult;
   };
+  signalChanges: SignalChange[];
+  whatChanged: WhatChangedToday;
+  assetImpact: AssetImpact[];
+  assetImpactSummary: string;
   politicalCutRisk: boolean;
 };
