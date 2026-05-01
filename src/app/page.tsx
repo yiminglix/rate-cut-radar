@@ -1,30 +1,18 @@
 import { RadarCharts } from "@/components/RadarCharts";
 import { generateDailyBrief, generateExecutiveSummary } from "@/lib/brief";
 import { getDashboardData } from "@/lib/fred";
-import { SERIES_META } from "@/lib/mock-data";
-import { calculateRateCutRadar, getLatestPoint } from "@/lib/signals";
+import { calculateRateCutRadar } from "@/lib/signals";
 import type {
   AssetBias,
   AssetImpact,
-  DashboardSeries,
-  FredSeriesId,
   MarketMove,
+  RadarStatus,
   RateCutRadar,
   SignalColor,
   SignalResult,
 } from "@/lib/types";
 
 export const revalidate = 21_600;
-
-const metricOrder: FredSeriesId[] = [
-  "DCOILBRENTEU",
-  "DGS2",
-  "DGS10",
-  "DGS30",
-  "T10Y2Y",
-  "PCEPILFE",
-  "PCETRIM1M158SFRBDAL",
-];
 
 const signalTone: Record<
   SignalColor,
@@ -37,25 +25,32 @@ const signalTone: Record<
   }
 > = {
   green: {
-    label: "Green",
+    label: "已确认",
     dot: "bg-emerald-400",
     badge: "bg-emerald-400/10 text-emerald-700 ring-emerald-500/20",
     surface: "border-emerald-500/20 bg-emerald-50/80",
     text: "text-emerald-700",
   },
   yellow: {
-    label: "Yellow",
+    label: "未确认",
     dot: "bg-amber-400",
     badge: "bg-amber-400/10 text-amber-700 ring-amber-500/20",
     surface: "border-amber-500/20 bg-amber-50/80",
     text: "text-amber-700",
   },
   red: {
-    label: "Red",
+    label: "偏粘",
     dot: "bg-rose-500",
     badge: "bg-rose-500/10 text-rose-700 ring-rose-500/20",
     surface: "border-rose-500/20 bg-rose-50/80",
     text: "text-rose-700",
+  },
+  stale: {
+    label: "数据不足",
+    dot: "bg-zinc-400",
+    badge: "bg-zinc-400/10 text-zinc-700 ring-zinc-500/20",
+    surface: "border-zinc-300 bg-zinc-50",
+    text: "text-zinc-600",
   },
 };
 
@@ -68,22 +63,22 @@ const assetTone: Record<
   }
 > = {
   bullish: {
-    label: "bullish",
+    label: "利好",
     className: "bg-emerald-400/10 text-emerald-700 ring-emerald-500/20",
     dot: "bg-emerald-400",
   },
   neutral: {
-    label: "neutral",
+    label: "中性",
     className: "bg-zinc-400/10 text-zinc-700 ring-zinc-500/20",
     dot: "bg-zinc-400",
   },
   bearish: {
-    label: "bearish",
+    label: "利空",
     className: "bg-rose-500/10 text-rose-700 ring-rose-500/20",
     dot: "bg-rose-500",
   },
   volatile: {
-    label: "volatile",
+    label: "高波动",
     className: "bg-amber-400/10 text-amber-700 ring-amber-500/20",
     dot: "bg-amber-400",
   },
@@ -103,15 +98,26 @@ function formatUpdatedAt(value: string): string {
   }).format(new Date(value));
 }
 
-function formatSeriesValue(seriesId: FredSeriesId, value: number): string {
-  if (seriesId === "DCOILBRENTEU") return `$${value.toFixed(2)}`;
-  if (seriesId === "PCEPILFE") return value.toFixed(2);
-  return `${value.toFixed(2)}%`;
-}
-
 function deltaText(delta: number): string {
   if (delta > 0) return `+${delta}`;
   return `${delta}`;
+}
+
+function percentDetail(value: unknown): string {
+  return typeof value === "number" ? `${value}%` : "数据不足";
+}
+
+function statusLabel(status: RadarStatus): string {
+  const labels: Record<RadarStatus, string> = {
+    "Healthy Rate Cut Expectation": "健康降息预期",
+    "Rate Cut Expectation Warming": "降息预期升温",
+    "Mixed / Wait and See": "混合观望",
+    "Rate Cut Expectation Weak": "降息预期偏弱",
+    "Political Cut Risk": "政治化降息风险",
+    "Rate Cut Expectation Failed": "降息预期失败",
+  };
+
+  return labels[status];
 }
 
 function scoreStroke(radar: RateCutRadar): string {
@@ -179,15 +185,15 @@ function ScoreCard({ radar }: { radar: RateCutRadar }) {
     <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-white shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-400">
-            Rate Cut Score
+          <p className="text-xs font-semibold tracking-[0.16em] text-zinc-400">
+            降息预期分数
           </p>
           <p className={`mt-2 font-mono text-lg font-semibold ${deltaClass}`}>
-            {deltaText(radar.scoreDelta)} vs yesterday
+            今日变化 {deltaText(radar.scoreDelta)}
           </p>
         </div>
-        <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-semibold uppercase text-zinc-300 ring-1 ring-white/10">
-          V1.5
+        <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-white/10">
+          V1.6
         </span>
       </div>
       <div className="mt-3 flex items-center justify-center">
@@ -197,25 +203,49 @@ function ScoreCard({ radar }: { radar: RateCutRadar }) {
   );
 }
 
-function RegimeCard({ radar }: { radar: RateCutRadar }) {
+function RegimeCard({
+  radar,
+  executiveSummary,
+}: {
+  radar: RateCutRadar;
+  executiveSummary: string;
+}) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-        Current Regime
-      </p>
-      <h2 className="mt-2 text-xl font-semibold text-zinc-950">{radar.status}</h2>
+      <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">当前状态</p>
+      <h2 className="mt-2 text-xl font-semibold text-zinc-950">
+        {statusLabel(radar.status)}
+      </h2>
       <p className="mt-2 text-sm leading-6 text-zinc-600">{radar.statusSummary}</p>
+      <div className="mt-4 rounded-md bg-zinc-950 p-3 text-white">
+        <p className="text-xs font-semibold text-zinc-400">今日一句话</p>
+        <p className="mt-1 text-sm font-medium leading-6">{executiveSummary}</p>
+      </div>
     </section>
   );
 }
 
-function FirstScreenImpact({ summary }: { summary: string }) {
+function FirstScreenImpact({ radar }: { radar: RateCutRadar }) {
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-        Asset Impact Summary
+      <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">资产影响</p>
+      <p className="mt-2 text-sm font-medium leading-6 text-zinc-950">
+        {radar.assetImpactSummary}
       </p>
-      <p className="mt-2 text-sm font-medium leading-6 text-zinc-950">{summary}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {radar.assetImpact.map((impact) => {
+          const tone = assetTone[impact.bias];
+          return (
+            <span
+              key={impact.asset}
+              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold ring-1 ${tone.className}`}
+            >
+              <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
+              {impact.asset} {tone.label}
+            </span>
+          );
+        })}
+      </div>
     </section>
   );
 }
@@ -233,39 +263,6 @@ function SignalPill({ color }: { color: SignalColor }) {
   );
 }
 
-function MetricCard({
-  seriesId,
-  series,
-}: {
-  seriesId: FredSeriesId;
-  series: DashboardSeries;
-}) {
-  const point = getLatestPoint(series[seriesId]);
-  const meta = SERIES_META[seriesId];
-
-  return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm">
-      <div className="flex min-h-10 items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.08em] text-zinc-500">
-            {meta.shortName}
-          </p>
-          <p className="mt-1 text-[11px] text-zinc-400">{meta.id}</p>
-        </div>
-        <span className="rounded-md bg-zinc-100 px-2 py-1 text-[11px] font-medium text-zinc-600">
-          {meta.frequency}
-        </span>
-      </div>
-      <p className="mt-3 font-mono text-2xl font-semibold text-zinc-950">
-        {point ? formatSeriesValue(seriesId, point.value) : "N/A"}
-      </p>
-      <p className="mt-1 text-xs text-zinc-500">
-        {point ? point.date : "No usable observation"}
-      </p>
-    </div>
-  );
-}
-
 function SignalCard({ signal }: { signal: SignalResult }) {
   const tone = signalTone[signal.color];
 
@@ -275,7 +272,7 @@ function SignalCard({ signal }: { signal: SignalResult }) {
         <div>
           <h3 className="text-sm font-semibold text-zinc-950">{signal.title}</h3>
           <p className="mt-1 text-xs text-zinc-500">
-            {signal.score}/{signal.maxScore} pts
+            {signal.score}/{signal.maxScore} 分
           </p>
         </div>
         <SignalPill color={signal.color} />
@@ -290,9 +287,9 @@ function SignalDetails({ signal }: { signal: SignalResult }) {
   if (signal.name === "oil") {
     return (
       <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
-        <DetailItem label="Pullback" value={`${signal.details.pullbackPct ?? "N/A"}%`} />
-        <DetailItem label="20D High" value={`${signal.details.high20 ?? "N/A"}`} />
-        <DetailItem label="20D Avg" value={`${signal.details.average20 ?? "N/A"}`} />
+        <DetailItem label="20日回撤" value={percentDetail(signal.details.pullbackPct)} />
+        <DetailItem label="20日高点" value={String(signal.details.high20 ?? "数据不足")} />
+        <DetailItem label="20日均线" value={String(signal.details.average20 ?? "数据不足")} />
       </dl>
     );
   }
@@ -300,22 +297,26 @@ function SignalDetails({ signal }: { signal: SignalResult }) {
   if (signal.name === "bond") {
     return (
       <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
-        <DetailItem label="2Y" value={String(signal.details.twoYearChange ?? "N/A")} />
-        <DetailItem label="10Y" value={String(signal.details.tenYearChange ?? "N/A")} />
-        <DetailItem label="30Y" value={String(signal.details.thirtyYearChange ?? "N/A")} />
+        <DetailItem label="2Y 5日" value={String(signal.details.twoYearChange ?? "数据不足")} />
+        <DetailItem label="10Y 5日" value={String(signal.details.tenYearChange ?? "数据不足")} />
+        <DetailItem label="30Y 5日" value={String(signal.details.thirtyYearChange ?? "数据不足")} />
       </dl>
     );
   }
 
   return (
-    <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
+    <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
       <DetailItem
-        label="Core PCE"
-        value={`${signal.details.coreLatestMomentum ?? "N/A"}%`}
+        label="Core YoY"
+        value={percentDetail(signal.details.corePceYoy)}
       />
       <DetailItem
-        label="Trimmed"
-        value={`${signal.details.trimmedLatestMomentum ?? "N/A"}%`}
+        label="Core 3M"
+        value={percentDetail(signal.details.corePceThreeMonthAnnualized)}
+      />
+      <DetailItem
+        label="Trimmed 6M"
+        value={percentDetail(signal.details.trimmedMeanSixMonthAnnualized)}
       />
     </dl>
   );
@@ -331,56 +332,63 @@ function DetailItem({ label, value }: { label: string; value: string }) {
 }
 
 function WhatChangedToday({ radar }: { radar: RateCutRadar }) {
+  const changedSignals = radar.signalChanges.filter((change) => change.changed);
+
   return (
     <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-          What Changed Today
-        </p>
-        <h2 className="mt-2 text-xl font-semibold text-zinc-950">
-          {radar.whatChanged.summary}
-        </h2>
-      </div>
-      <div className="mt-5 grid gap-3 md:grid-cols-[0.85fr_1.15fr]">
+      <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">今日变化</p>
+      <h2 className="mt-2 text-xl font-semibold text-zinc-950">
+        {radar.whatChanged.summary}
+      </h2>
+      <div className="mt-5 grid gap-3 md:grid-cols-[0.8fr_1.2fr]">
         <div className="rounded-lg border border-zinc-200 bg-zinc-950 p-4 text-white">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-400">
-            Score Delta
+          <p className="text-xs font-semibold tracking-[0.14em] text-zinc-400">
+            分数变化
           </p>
           <p className="mt-3 font-mono text-5xl font-semibold">
             {deltaText(radar.whatChanged.scoreDelta)}
           </p>
-          <p className="mt-2 text-sm text-zinc-400">vs previous trading day</p>
+          <p className="mt-2 text-sm text-zinc-400">较上一交易日</p>
         </div>
 
-        <div className="grid gap-3">
-          {radar.signalChanges.map((change) => (
-            <div
-              key={change.name}
-              className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-zinc-50 p-3"
-            >
-              <div>
-                <p className="text-sm font-semibold text-zinc-950">{change.title}</p>
-                <p className="mt-1 text-xs leading-5 text-zinc-500">{change.summary}</p>
-              </div>
-              <SignalPill color={change.currentColor} />
-            </div>
-          ))}
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+          <p className="text-xs font-semibold tracking-[0.14em] text-zinc-500">
+            信号变化
+          </p>
+          <div className="mt-3 space-y-2">
+            {changedSignals.length > 0 ? (
+              changedSignals.map((change) => (
+                <div key={change.name} className="flex items-start justify-between gap-3">
+                  <p className="text-sm leading-6 text-zinc-700">{change.summary}</p>
+                  <SignalPill color={change.currentColor} />
+                </div>
+              ))
+            ) : (
+              <p className="text-sm leading-6 text-zinc-700">
+                三盏灯未变化，今天主要观察油价、美债和通胀的延续性。
+              </p>
+            )}
+          </div>
         </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
         {radar.whatChanged.keyMoves.map((move) => (
-          <div key={move.label} className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.1em] text-zinc-500">
-              {move.label}
-            </p>
-            <p className={`mt-2 font-mono text-xl font-semibold ${moveTone[move.tone]}`}>
-              {move.value}
-            </p>
-            <p className="mt-1 text-xs text-zinc-500">{move.detail}</p>
-          </div>
+          <MoveCard key={move.label} move={move} />
         ))}
       </div>
     </section>
+  );
+}
+
+function MoveCard({ move }: { move: MarketMove }) {
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+      <p className="text-xs font-semibold tracking-[0.1em] text-zinc-500">{move.label}</p>
+      <p className={`mt-2 font-mono text-xl font-semibold ${moveTone[move.tone]}`}>
+        {move.value}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-zinc-500">{move.detail}</p>
+    </div>
   );
 }
 
@@ -407,11 +415,9 @@ function AssetImpactSection({ radar }: { radar: RateCutRadar }) {
   return (
     <section>
       <div className="mb-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-          Asset Impact
-        </p>
+        <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">资产影响</p>
         <h2 className="mt-1 text-xl font-semibold text-zinc-950">
-          Cross-asset read-through
+          高弹性资产怎么理解
         </h2>
       </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
@@ -423,29 +429,23 @@ function AssetImpactSection({ radar }: { radar: RateCutRadar }) {
   );
 }
 
-function DailyBrief({
-  executiveSummary,
-  brief,
-}: {
-  executiveSummary: string;
-  brief: string;
-}) {
+function DailyBrief({ brief }: { brief: string }) {
   return (
     <details className="group rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-            Daily Brief
+          <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">
+            今日简报
           </p>
           <p className="mt-2 text-base font-medium leading-7 text-zinc-950">
-            {executiveSummary}
+            详细简报
           </p>
         </div>
         <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600 ring-1 ring-zinc-200 group-open:hidden">
-          Open
+          展开
         </span>
         <span className="hidden rounded-md bg-zinc-950 px-2 py-1 text-xs font-semibold text-white group-open:inline-flex">
-          Close
+          收起
         </span>
       </summary>
       <p className="mt-5 border-t border-zinc-200 pt-4 text-base leading-8 text-zinc-700">
@@ -455,19 +455,77 @@ function DailyBrief({
   );
 }
 
+function KeyMetrics({ radar }: { radar: RateCutRadar }) {
+  return (
+    <section>
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">
+            关键指标
+          </p>
+          <h2 className="mt-1 text-xl font-semibold text-zinc-950">最新宏观指标</h2>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        {radar.keyMetrics.map((metric) => (
+          <MoveCard key={metric.label} move={metric} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function Methodology() {
+  return (
+    <details className="group rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">
+            方法说明
+          </p>
+          <h2 className="mt-1 text-xl font-semibold text-zinc-950">
+            降息预期健康度如何计算
+          </h2>
+        </div>
+        <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600 ring-1 ring-zinc-200 group-open:hidden">
+          展开
+        </span>
+        <span className="hidden rounded-md bg-zinc-950 px-2 py-1 text-xs font-semibold text-white group-open:inline-flex">
+          收起
+        </span>
+      </summary>
+      <div className="mt-4 space-y-4 border-t border-zinc-200 pt-4 text-sm leading-7 text-zinc-700">
+        <p>
+          总分由三部分组成：油价信号 30 分，通胀信号 35 分，美债信号 35 分。已确认得满分，未确认得一半，偏粘或数据不足得 0 分。
+        </p>
+        <p>
+          油价信号使用 Brent 当前价格相对近 20 个有效交易日高点的回撤，并结合 20 日均线判断能源通胀压力是否缓和。
+        </p>
+        <p>
+          通胀信号不使用 Core PCE 或 Trimmed Mean PCE 的指数水平判断方向，而是使用 Core PCE YoY、Core PCE 3M 年化和 Trimmed Mean PCE 6M 年化判断底层通胀是否自然降温。
+        </p>
+        <p>
+          美债信号比较 2Y、10Y、30Y 最近 5 个有效交易日变化。若 2Y 下行但 10Y/30Y 明显上行，状态会切换为政治化降息风险。
+        </p>
+      </div>
+    </details>
+  );
+}
+
 export default async function Home() {
   const data = await getDashboardData();
   const radar = calculateRateCutRadar(data.series);
   const brief = generateDailyBrief(radar, data.source);
   const executiveSummary = generateExecutiveSummary(radar);
+  const sourceLabel = data.source === "fred" ? "FRED" : "模拟数据";
 
   return (
     <main className="min-h-screen bg-[#f4f5f7] text-zinc-950">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
         <header className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-teal-700">
-              Macro Decision Tool
+            <p className="text-xs font-semibold tracking-[0.2em] text-teal-700">
+              降息预期健康度仪表盘
             </p>
             <h1 className="mt-1 text-xl font-semibold text-zinc-950 sm:text-2xl">
               Rate Cut Radar
@@ -476,8 +534,8 @@ export default async function Home() {
           </div>
           <div className="text-right">
             <p className="font-mono text-xs text-zinc-600">{formatUpdatedAt(data.updatedAt)}</p>
-            <p className="mt-1 text-[11px] uppercase tracking-[0.12em] text-zinc-400">
-              Source: {data.source}
+            <p className="mt-1 text-[11px] tracking-[0.12em] text-zinc-400">
+              数据源：{sourceLabel}
             </p>
           </div>
         </header>
@@ -485,8 +543,8 @@ export default async function Home() {
         <section className="grid gap-3 lg:grid-cols-[0.9fr_1.1fr]">
           <ScoreCard radar={radar} />
           <div className="grid gap-3">
-            <RegimeCard radar={radar} />
-            <FirstScreenImpact summary={radar.assetImpactSummary} />
+            <RegimeCard radar={radar} executiveSummary={executiveSummary} />
+            <FirstScreenImpact radar={radar} />
           </div>
         </section>
 
@@ -496,11 +554,9 @@ export default async function Home() {
           </section>
         ) : null}
 
+        <DailyBrief brief={brief} />
+
         <WhatChangedToday radar={radar} />
-
-        <AssetImpactSection radar={radar} />
-
-        <DailyBrief executiveSummary={executiveSummary} brief={brief} />
 
         <section className="grid gap-4 md:grid-cols-3">
           <SignalCard signal={radar.signals.oil} />
@@ -508,60 +564,23 @@ export default async function Home() {
           <SignalCard signal={radar.signals.bond} />
         </section>
 
-        <section>
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-                Key Metrics
-              </p>
-              <h2 className="mt-1 text-xl font-semibold text-zinc-950">
-                Latest macro inputs
-              </h2>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {metricOrder.map((seriesId) => (
-              <MetricCard key={seriesId} seriesId={seriesId} series={data.series} />
-            ))}
-          </div>
-        </section>
+        <AssetImpactSection radar={radar} />
+
+        <KeyMetrics radar={radar} />
 
         <section>
           <div className="mb-3">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-              Charts
+            <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">
+              验证路径
             </p>
             <h2 className="mt-1 text-xl font-semibold text-zinc-950">
-              Confirmation paths
+              从油价到通胀，再到长端美债
             </h2>
           </div>
           <RadarCharts series={data.series} />
         </section>
 
-        <section className="rounded-lg border border-zinc-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">
-            Methodology
-          </p>
-          <h2 className="mt-1 text-xl font-semibold text-zinc-950">Rules of the radar</h2>
-          <div className="mt-4 space-y-4 text-sm leading-7 text-zinc-700">
-            <p>
-              总分由三部分组成：Oil Signal 30 分，Inflation Signal 35 分，Bond
-              Market Signal 35 分。Green 得满分，Yellow 得一半，Red 得 0 分。
-            </p>
-            <p>
-              Oil Signal 使用 Brent 当前价格相对近 20 个有效交易日高点的回落幅度，并结合
-              20 日均线判断能源价格是否配合降息预期。
-            </p>
-            <p>
-              Bond Market Signal 比较 2Y、10Y、30Y 最近 5 个有效交易日变化。若短端下行但长端明显上行，
-              状态会切换为 Political Cut Risk。
-            </p>
-            <p>
-              Inflation Signal 使用最近 3 个 PCE 数据点。核心 PCE 转换为月度动能，Trimmed
-              Mean PCE 使用 FRED 原始年化序列观察是否放缓。
-            </p>
-          </div>
-        </section>
+        <Methodology />
       </div>
     </main>
   );

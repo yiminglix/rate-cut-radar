@@ -31,7 +31,7 @@ export type DashboardData = {
   warning?: string;
 };
 
-export type SignalColor = "green" | "yellow" | "red";
+export type SignalColor = "green" | "yellow" | "red" | "stale";
 
 export type SignalName = "oil" | "inflation" | "bond";
 
@@ -82,7 +82,7 @@ export type WhatChangedToday = {
 export type AssetBias = "bullish" | "neutral" | "bearish" | "volatile";
 
 export type AssetImpact = {
-  asset: "Hang Seng Tech" | "Nasdaq Growth" | "TLT" | "Gold" | "BTC";
+  asset: "恒生科技" | "纳指成长" | "长债/TLT" | "黄金" | "BTC";
   bias: AssetBias;
   summary: string;
 };
@@ -100,6 +100,7 @@ export type RateCutRadar = {
   };
   signalChanges: SignalChange[];
   whatChanged: WhatChangedToday;
+  keyMetrics: MarketMove[];
   assetImpact: AssetImpact[];
   assetImpactSummary: string;
   politicalCutRisk: boolean;

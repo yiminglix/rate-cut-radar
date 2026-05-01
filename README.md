@@ -1,19 +1,19 @@
 # Rate Cut Radar
 
-Rate Cut Radar / 降息雷达 is a mobile-first macro decision dashboard for tracking whether a healthy rate cut expectation is forming. It combines oil, inflation, and Treasury market signals into a 0-100 score, a current regime, daily change diagnostics, asset impact notes, charts, and a Chinese daily brief.
+Rate Cut Radar / 降息雷达 is a mobile-first macro decision dashboard for tracking whether a healthy rate cut expectation is forming. It links oil pressure, underlying inflation, and Treasury-market confirmation into a 0-100 score, then translates the setup into asset implications for Hang Seng Tech, NASDAQ growth, TLT, gold, and BTC.
 
-## V1.5 Decision Layer
+## V1.6 Decision Layer
 
-The home screen now prioritizes daily decision-making:
+The home screen prioritizes daily decision-making in Chinese:
 
-- Rate Cut Score with a large circular progress display
-- Day-over-day score change
-- Current Regime
-- Asset Impact Summary
-- What Changed Today: score delta, signal changes, and key oil/yield moves
-- Asset Impact for Hang Seng Tech, Nasdaq Growth, TLT, Gold, and BTC
-- Collapsed Daily Brief with a one-line executive summary by default
-- Conclusion-led chart titles instead of raw data labels
+- 降息预期分数 with a large circular progress display
+- 今日变化 versus the previous trading day
+- 当前状态 and 今日一句话
+- 资产影响 for 恒生科技, 纳指成长, 长债/TLT, 黄金, and BTC
+- One set of three signal cards: 油价信号, 通胀信号, 美债信号
+- Processed 关键指标 instead of raw-only macro prints
+- Collapsed 详细简报 and 方法说明
+- 验证路径 charts with conclusion-led Chinese titles
 
 ## Stack
 
@@ -55,7 +55,7 @@ If `FRED_API_KEY` is empty, the app automatically uses mock data so the UI can s
 Optional variables:
 
 - `FRED_API_BASE_URL`: defaults to `https://api.stlouisfed.org/fred`
-- `FRED_OBSERVATION_MONTHS`: defaults to `18`
+- `FRED_OBSERVATION_MONTHS`: defaults to `24`
 - `FRED_REVALIDATE_SECONDS`: defaults to `21600`
 
 ## Get a FRED API Key
@@ -94,19 +94,20 @@ npm run lint
 npm run build
 ```
 
-## Scoring Methodology
+## 评分方法
 
 Total score:
 
-- Oil Signal: 30 points
-- Inflation Signal: 35 points
-- Bond Market Signal: 35 points
+- 油价信号: 30 points
+- 通胀信号: 35 points
+- 美债信号: 35 points
 
-Signal colors:
+信号颜色:
 
-- Green: full score
-- Yellow: half score
-- Red: zero score
+- 已确认: full score
+- 未确认: half score
+- 偏粘: zero score
+- 数据不足: zero score and no forced judgment
 
 Status:
 
@@ -116,6 +117,13 @@ Status:
 - `20-39`: Rate Cut Expectation Weak
 - `<20`: Rate Cut Expectation Failed
 - Special case: if 2Y yields fall while 10Y or 30Y yields rise clearly, the status becomes Political Cut Risk.
+
+V1.6 通胀逻辑:
+
+- Core PCE YoY checks whether the year-over-year inflation rate is slowing.
+- Core PCE 3M annualized checks short-term underlying inflation momentum.
+- Trimmed Mean PCE 6M annualized compounds the latest six monthly annualized trimmed-mean readings.
+- If there is not enough PCE history, the app shows 数据不足 instead of judging inflation from index levels.
 
 ## Code Structure
 

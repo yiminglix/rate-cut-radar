@@ -38,12 +38,12 @@ function round(value: number, digits = 2): number {
 
 function formatBps(value: number): string {
   const prefix = value > 0 ? "+" : "";
-  return `${prefix}${round(value, 1)} bps`;
+  return `${prefix}${round(value, 1)}基点`;
 }
 
-function formatPct(value: number): string {
+function formatPct(value: number, digits = 2): string {
   const prefix = value > 0 ? "+" : "";
-  return `${prefix}${round(value, 2)}%`;
+  return `${prefix}${round(value, digits)}%`;
 }
 
 function latestPair(points: SeriesPoint[]): {
@@ -67,12 +67,12 @@ function calculateOilSignal(points: SeriesPoint[]): SignalResult {
   if (!latestPoint || clean.length < 20) {
     return {
       name: "oil",
-      title: "Oil Signal",
-      color: "yellow",
-      score: scoreFor("yellow", OIL_WEIGHT),
+      title: "油价信号",
+      color: "stale",
+      score: 0,
       maxScore: OIL_WEIGHT,
-      summary: "Brent 数据不足，油价信号暂按中性处理。",
-      details: { dataPoints: clean.length },
+      summary: "Brent 数据不足，暂不判断能源通胀压力是否缓和。",
+      details: { dataPoints: clean.length, dataStatus: "数据不足" },
     };
   }
 
@@ -92,14 +92,14 @@ function calculateOilSignal(points: SeriesPoint[]): SignalResult {
 
   const summary =
     color === "green"
-      ? "Brent 已明显脱离近 20 个交易日高点，并低于 20 日均线，油价开始配合降息叙事。"
+      ? "Brent 已明显脱离近 20 个交易日高点，并低于 20 日均线，能源通胀压力正在缓和。"
       : color === "yellow"
         ? "Brent 有所回落，但幅度还不够深，油价只是在边际上支持降息预期。"
-        : "Brent 接近近期高点或回落不足，能源价格仍可能干扰降息预期。";
+        : "Brent 接近近期高点或回落不足，能源价格仍可能挤压降息空间。";
 
   return {
     name: "oil",
-    title: "Oil Signal",
+    title: "油价信号",
     color,
     score: scoreFor(color, OIL_WEIGHT),
     maxScore: OIL_WEIGHT,
@@ -140,12 +140,12 @@ function calculateBondSignal(series: DashboardSeries): SignalResult {
   if (!twoYear || !tenYear || !thirtyYear) {
     return {
       name: "bond",
-      title: "Bond Market Signal",
-      color: "yellow",
-      score: scoreFor("yellow", BOND_WEIGHT),
+      title: "美债信号",
+      color: "stale",
+      score: 0,
       maxScore: BOND_WEIGHT,
-      summary: "美债数据不足，债券市场信号暂按中性处理。",
-      details: {},
+      summary: "美债数据不足，暂不判断债券市场是否相信健康降息。",
+      details: { dataStatus: "数据不足" },
     };
   }
 
@@ -162,14 +162,14 @@ function calculateBondSignal(series: DashboardSeries): SignalResult {
 
   const summary =
     color === "green"
-      ? "短端利率下行，同时 10Y/30Y 没有明显上行，债券市场正在认可更健康的降息路径。"
+      ? "2Y 下行，同时 10Y/30Y 没有明显上行，债券市场正在认可更健康的降息路径。"
       : color === "red"
         ? "2Y 下行但长端收益率明显上行，市场更像在定价政治化降息或期限溢价压力。"
-        : "美债曲线信号仍不充分，短端与长端还没有形成一致的降息确认。";
+        : "美债曲线信号仍不充分，短端降息交易和长端确认还没有一致。";
 
   return {
     name: "bond",
-    title: "Bond Market Signal",
+    title: "美债信号",
     color,
     score: scoreFor(color, BOND_WEIGHT),
     maxScore: BOND_WEIGHT,
@@ -178,83 +178,172 @@ function calculateBondSignal(series: DashboardSeries): SignalResult {
       twoYearChange: formatBps(twoYear.changeBps),
       tenYearChange: formatBps(tenYear.changeBps),
       thirtyYearChange: formatBps(thirtyYear.changeBps),
+      twoYearChangeBps: round(twoYear.changeBps, 1),
+      tenYearChangeBps: round(tenYear.changeBps, 1),
+      thirtyYearChangeBps: round(thirtyYear.changeBps, 1),
       politicalCutRisk,
     },
   };
 }
 
-function corePceMomentum(points: SeriesPoint[]): {
-  previousMomentum: number;
-  latestMomentum: number;
-} | null {
-  const clean = validPoints(points).slice(-3);
-  if (clean.length < 3) return null;
+function annualizedFromIndex(
+  current: number,
+  previous: number,
+  months: number,
+): number {
+  return (Math.pow(current / previous, 12 / months) - 1) * 100;
+}
 
-  const [first, second, third] = clean;
+function corePceYoy(points: SeriesPoint[]): {
+  previous: number;
+  latest: number;
+} | null {
+  const clean = validPoints(points);
+  if (clean.length < 14) return null;
+
+  const latestPoint = clean.at(-1);
+  const latestYearAgo = clean.at(-13);
+  const previousPoint = clean.at(-2);
+  const previousYearAgo = clean.at(-14);
+  if (!latestPoint || !latestYearAgo || !previousPoint || !previousYearAgo) {
+    return null;
+  }
+
   return {
-    previousMomentum: ((second.value - first.value) / first.value) * 100,
-    latestMomentum: ((third.value - second.value) / second.value) * 100,
+    latest: ((latestPoint.value / latestYearAgo.value) - 1) * 100,
+    previous: ((previousPoint.value / previousYearAgo.value) - 1) * 100,
   };
 }
 
-function trimmedPceMomentum(points: SeriesPoint[]): {
-  previousMomentum: number;
-  latestMomentum: number;
+function corePceThreeMonthAnnualized(points: SeriesPoint[]): {
+  previous: number;
+  latest: number;
 } | null {
-  const clean = validPoints(points).slice(-3);
-  if (clean.length < 3) return null;
+  const clean = validPoints(points);
+  if (clean.length < 5) return null;
+
+  const latestPoint = clean.at(-1);
+  const latestThreeMonthsAgo = clean.at(-4);
+  const previousPoint = clean.at(-2);
+  const previousThreeMonthsAgo = clean.at(-5);
+  if (
+    !latestPoint ||
+    !latestThreeMonthsAgo ||
+    !previousPoint ||
+    !previousThreeMonthsAgo
+  ) {
+    return null;
+  }
 
   return {
-    previousMomentum: clean[1].value,
-    latestMomentum: clean[2].value,
+    latest: annualizedFromIndex(latestPoint.value, latestThreeMonthsAgo.value, 3),
+    previous: annualizedFromIndex(
+      previousPoint.value,
+      previousThreeMonthsAgo.value,
+      3,
+    ),
+  };
+}
+
+function monthlyRateFromAnnualized(value: number): number | null {
+  const annualMultiplier = 1 + value / 100;
+  if (annualMultiplier <= 0) return null;
+  return Math.pow(annualMultiplier, 1 / 12) - 1;
+}
+
+function annualizedTrimmedWindow(points: SeriesPoint[]): number | null {
+  let multiplier = 1;
+
+  for (const point of points) {
+    const monthlyRate = monthlyRateFromAnnualized(point.value);
+    if (monthlyRate === null) return null;
+    multiplier *= 1 + monthlyRate;
+  }
+
+  return (Math.pow(multiplier, 12 / points.length) - 1) * 100;
+}
+
+function trimmedMeanSixMonthAnnualized(points: SeriesPoint[]): {
+  previous: number;
+  latest: number;
+} | null {
+  const clean = validPoints(points);
+  if (clean.length < 7) return null;
+
+  const latestWindow = clean.slice(-6);
+  const previousWindow = clean.slice(-7, -1);
+  const latestValue = annualizedTrimmedWindow(latestWindow);
+  const previousValue = annualizedTrimmedWindow(previousWindow);
+
+  if (latestValue === null || previousValue === null) return null;
+
+  return {
+    latest: latestValue,
+    previous: previousValue,
   };
 }
 
 function calculateInflationSignal(series: DashboardSeries): SignalResult {
-  const core = corePceMomentum(series.PCEPILFE);
-  const trimmed = trimmedPceMomentum(series.PCETRIM1M158SFRBDAL);
+  const coreYoy = corePceYoy(series.PCEPILFE);
+  const coreThreeMonth = corePceThreeMonthAnnualized(series.PCEPILFE);
+  const trimmedSixMonth = trimmedMeanSixMonthAnnualized(
+    series.PCETRIM1M158SFRBDAL,
+  );
 
-  if (!core || !trimmed) {
+  if (!coreYoy || !coreThreeMonth || !trimmedSixMonth) {
     return {
       name: "inflation",
-      title: "Inflation Signal",
-      color: "yellow",
-      score: scoreFor("yellow", INFLATION_WEIGHT),
+      title: "通胀信号",
+      color: "stale",
+      score: 0,
       maxScore: INFLATION_WEIGHT,
-      summary: "PCE 数据不足，通胀信号暂按中性处理。",
-      details: {},
+      summary:
+        "PCE 数据不足，暂不判断底层通胀是否放缓，避免用指数水平误判通胀方向。",
+      details: {
+        corePceDataPoints: validPoints(series.PCEPILFE).length,
+        trimmedMeanDataPoints: validPoints(series.PCETRIM1M158SFRBDAL).length,
+        dataStatus: "数据不足",
+      },
     };
   }
 
-  const coreSlowing = core.latestMomentum < core.previousMomentum;
-  const trimmedSlowing = trimmed.latestMomentum < trimmed.previousMomentum;
-  const slowingCount = Number(coreSlowing) + Number(trimmedSlowing);
+  const coreYoySlowing = coreYoy.latest < coreYoy.previous;
+  const coreThreeMonthSlowing = coreThreeMonth.latest < coreThreeMonth.previous;
+  const trimmedSixMonthSlowing =
+    trimmedSixMonth.latest < trimmedSixMonth.previous;
+  const slowingCount =
+    Number(coreYoySlowing) +
+    Number(coreThreeMonthSlowing) +
+    Number(trimmedSixMonthSlowing);
 
   let color: SignalColor = "red";
-  if (slowingCount === 2) color = "green";
-  if (slowingCount === 1) color = "yellow";
+  if (slowingCount === 3) color = "green";
+  if (slowingCount >= 1 && slowingCount < 3) color = "yellow";
 
   const summary =
     color === "green"
-      ? "核心 PCE 动能和 Trimmed Mean PCE 同步放缓，通胀端正在支持更干净的降息预期。"
+      ? "Core PCE YoY、Core PCE 3M 年化和 Trimmed Mean PCE 6M 年化同步放缓，底层通胀正在自然降温。"
       : color === "yellow"
-        ? "通胀数据有一项放缓、一项仍偏黏，降息预期获得部分支持但还不稳。"
-        : "核心 PCE 与 Trimmed Mean PCE 未能放缓，通胀端暂不支持健康降息叙事。";
+        ? "底层通胀只有部分指标放缓，降息空间在改善，但通胀黏性还没有完全解除。"
+        : "Core PCE 和 Trimmed Mean PCE 的关键动能未放缓，通胀端暂不支持健康降息叙事。";
 
   return {
     name: "inflation",
-    title: "Inflation Signal",
+    title: "通胀信号",
     color,
     score: scoreFor(color, INFLATION_WEIGHT),
     maxScore: INFLATION_WEIGHT,
     summary,
     details: {
-      coreLatestMomentum: round(core.latestMomentum, 3),
-      corePreviousMomentum: round(core.previousMomentum, 3),
-      trimmedLatestMomentum: round(trimmed.latestMomentum, 2),
-      trimmedPreviousMomentum: round(trimmed.previousMomentum, 2),
-      coreSlowing,
-      trimmedSlowing,
+      corePceYoy: round(coreYoy.latest, 2),
+      previousCorePceYoy: round(coreYoy.previous, 2),
+      corePceThreeMonthAnnualized: round(coreThreeMonth.latest, 2),
+      previousCorePceThreeMonthAnnualized: round(coreThreeMonth.previous, 2),
+      trimmedMeanSixMonthAnnualized: round(trimmedSixMonth.latest, 2),
+      previousTrimmedMeanSixMonthAnnualized: round(trimmedSixMonth.previous, 2),
+      coreYoySlowing,
+      coreThreeMonthSlowing,
+      trimmedSixMonthSlowing,
     },
   };
 }
@@ -282,15 +371,23 @@ function calculateSignals(series: DashboardSeries) {
 }
 
 const signalTitles: Record<SignalName, string> = {
-  oil: "Oil Signal",
-  inflation: "Inflation Signal",
-  bond: "Bond Market Signal",
+  oil: "油价信号",
+  inflation: "通胀信号",
+  bond: "美债信号",
 };
 
 function colorLabel(color: SignalColor): string {
-  if (color === "green") return "green";
-  if (color === "yellow") return "yellow";
-  return "red";
+  if (color === "green") return "已确认";
+  if (color === "yellow") return "未确认";
+  if (color === "red") return "偏粘";
+  return "数据不足";
+}
+
+function colorRank(color: SignalColor): number {
+  if (color === "green") return 3;
+  if (color === "yellow") return 2;
+  if (color === "red") return 1;
+  return 0;
 }
 
 function signalChangeSummary(
@@ -299,16 +396,14 @@ function signalChangeSummary(
   currentColor: SignalColor,
 ): string {
   if (previousColor === currentColor) {
-    return `${title} stayed ${colorLabel(currentColor)}.`;
+    return `${title}维持${colorLabel(currentColor)}。`;
   }
 
-  const better =
-    (previousColor === "red" && currentColor !== "red") ||
-    (previousColor === "yellow" && currentColor === "green");
+  const better = colorRank(currentColor) > colorRank(previousColor);
 
-  return `${title} moved from ${colorLabel(previousColor)} to ${colorLabel(
+  return `${title}由${colorLabel(previousColor)}变为${colorLabel(
     currentColor,
-  )}, ${better ? "improving the setup" : "weakening the setup"}.`;
+  )}，${better ? "对降息健康度更友好" : "确认力度减弱"}。`;
 }
 
 function buildSignalChanges(
@@ -362,8 +457,12 @@ function buildKeyMoves(series: DashboardSeries): MarketMove[] {
   const oilChangePct = oil
     ? ((oil.current.value - oil.previous.value) / oil.previous.value) * 100
     : null;
-  const twoYearBps = twoYear ? (twoYear.current.value - twoYear.previous.value) * 100 : null;
-  const tenYearBps = tenYear ? (tenYear.current.value - tenYear.previous.value) * 100 : null;
+  const twoYearBps = twoYear
+    ? (twoYear.current.value - twoYear.previous.value) * 100
+    : null;
+  const tenYearBps = tenYear
+    ? (tenYear.current.value - tenYear.previous.value) * 100
+    : null;
   const thirtyYearBps = thirtyYear
     ? (thirtyYear.current.value - thirtyYear.previous.value) * 100
     : null;
@@ -373,29 +472,103 @@ function buildKeyMoves(series: DashboardSeries): MarketMove[] {
       "Brent",
       oilChangePct,
       oilChangePct === null ? "N/A" : formatPct(oilChangePct),
-      oil ? `$${round(oil.current.value, 2)} latest` : "No usable oil print",
+      oil ? `最新 ${round(oil.current.value, 2)} 美元/桶` : "暂无有效油价数据",
       true,
     ),
     marketMove(
-      "2Y Treasury",
+      "2Y 美债",
       twoYearBps,
       twoYearBps === null ? "N/A" : formatBps(twoYearBps),
-      twoYear ? `${round(twoYear.current.value, 2)}% latest` : "No usable 2Y print",
+      twoYear ? `最新 ${round(twoYear.current.value, 2)}%` : "暂无有效 2Y 数据",
       true,
     ),
     marketMove(
-      "10Y Treasury",
+      "10Y 美债",
       tenYearBps,
       tenYearBps === null ? "N/A" : formatBps(tenYearBps),
-      tenYear ? `${round(tenYear.current.value, 2)}% latest` : "No usable 10Y print",
+      tenYear ? `最新 ${round(tenYear.current.value, 2)}%` : "暂无有效 10Y 数据",
       true,
     ),
     marketMove(
-      "30Y Treasury",
+      "30Y 美债",
       thirtyYearBps,
       thirtyYearBps === null ? "N/A" : formatBps(thirtyYearBps),
-      thirtyYear ? `${round(thirtyYear.current.value, 2)}% latest` : "No usable 30Y print",
+      thirtyYear ? `最新 ${round(thirtyYear.current.value, 2)}%` : "暂无有效 30Y 数据",
       true,
+    ),
+  ];
+}
+
+function moveFromSignalColor(
+  label: string,
+  value: string,
+  detail: string,
+  color: SignalColor,
+): MarketMove {
+  const tone: MarketMove["tone"] =
+    color === "green" ? "supportive" : color === "red" ? "risk" : "neutral";
+  return { label, value, detail, tone };
+}
+
+function buildKeyMetrics(
+  series: DashboardSeries,
+  signals: ReturnType<typeof calculateSignals>,
+): MarketMove[] {
+  const twoYear = changeOverFiveSessions(series.DGS2);
+  const tenYear = changeOverFiveSessions(series.DGS10);
+  const thirtyYear = changeOverFiveSessions(series.DGS30);
+
+  return [
+    moveFromSignalColor(
+      "Brent 距20日高点回撤",
+      signals.oil.details.pullbackPct === undefined
+        ? "数据不足"
+        : `${signals.oil.details.pullbackPct}%`,
+      signals.oil.details.high20 === undefined
+        ? "需要至少 20 个有效交易日"
+        : `20日高点 ${signals.oil.details.high20}`,
+      signals.oil.color,
+    ),
+    marketMove(
+      "2Y 5日变化",
+      twoYear?.changeBps ?? null,
+      twoYear ? formatBps(twoYear.changeBps) : "数据不足",
+      twoYear ? `当前 ${round(twoYear.current, 2)}%` : "需要至少 6 个有效交易日",
+      true,
+    ),
+    marketMove(
+      "10Y 5日变化",
+      tenYear?.changeBps ?? null,
+      tenYear ? formatBps(tenYear.changeBps) : "数据不足",
+      tenYear ? `当前 ${round(tenYear.current, 2)}%` : "需要至少 6 个有效交易日",
+      true,
+    ),
+    marketMove(
+      "30Y 5日变化",
+      thirtyYear?.changeBps ?? null,
+      thirtyYear ? formatBps(thirtyYear.changeBps) : "数据不足",
+      thirtyYear ? `当前 ${round(thirtyYear.current, 2)}%` : "需要至少 6 个有效交易日",
+      true,
+    ),
+    moveFromSignalColor(
+      "Core PCE YoY",
+      signals.inflation.details.corePceYoy === undefined
+        ? "数据不足"
+        : `${signals.inflation.details.corePceYoy}%`,
+      signals.inflation.details.previousCorePceYoy === undefined
+        ? "需要至少 14 个月 Core PCE"
+        : `前值 ${signals.inflation.details.previousCorePceYoy}%`,
+      signals.inflation.color,
+    ),
+    moveFromSignalColor(
+      "Trimmed Mean PCE 6M年化",
+      signals.inflation.details.trimmedMeanSixMonthAnnualized === undefined
+        ? "数据不足"
+        : `${signals.inflation.details.trimmedMeanSixMonthAnnualized}%`,
+      signals.inflation.details.previousTrimmedMeanSixMonthAnnualized === undefined
+        ? "需要至少 7 个月 Trimmed Mean PCE"
+        : `前值 ${signals.inflation.details.previousTrimmedMeanSixMonthAnnualized}%`,
+      signals.inflation.color,
     ),
   ];
 }
@@ -412,12 +585,12 @@ function buildWhatChangedToday(
 
   const summary =
     direction === "up"
-      ? `Score improved by ${delta} points as macro inputs became more cut-friendly.`
+      ? `分数上升 ${delta} 分，宏观组合更接近健康降息。`
       : direction === "down"
-        ? `Score fell by ${Math.abs(delta)} points as the setup lost confirmation.`
+        ? `分数下降 ${Math.abs(delta)} 分，降息确认度减弱。`
         : changedSignals.length > 0
-          ? "Score is unchanged, but the composition of signals shifted under the surface."
-          : "Score is unchanged; today's setup is more about confirmation than a fresh impulse.";
+          ? "总分持平，但信号结构正在变化。"
+          : "总分持平，今天重点是等待进一步确认。";
 
   return {
     scoreDelta: delta,
@@ -491,52 +664,52 @@ function buildAssetImpact(radar: {
 
   return [
     {
-      asset: "Hang Seng Tech",
+      asset: "恒生科技",
       bias: bias.riskBeta,
       summary:
         bias.riskBeta === "bullish"
-          ? "Liquidity relief and lower discount rates support a beta catch-up."
+          ? "降息健康度改善时，高弹性估值修复对恒生科技更友好。"
           : bias.riskBeta === "volatile"
-            ? "The tape can squeeze higher, but long-end confirmation is not clean enough."
-            : "Weak macro confirmation keeps high-beta China tech vulnerable.",
+            ? "短端宽松能带来反弹，但长端不确认会让行情更颠簸。"
+            : "油价、通胀或美债未配合，高弹性中国科技仍偏脆弱。",
     },
     {
-      asset: "Nasdaq Growth",
+      asset: "纳指成长",
       bias: bias.riskBeta,
       summary:
         bias.riskBeta === "bullish"
-          ? "Lower rate pressure supports duration-heavy growth multiples."
+          ? "长端利率压力缓和，有利于 NASDAQ 成长股估值扩张。"
           : bias.riskBeta === "volatile"
-            ? "Growth can trade tactically, but rising long-end yields would cap upside."
-            : "The setup does not yet justify paying up for long-duration growth.",
+            ? "成长股可做战术交易，但长端上行会压制估值。"
+            : "降息预期缺少健康确认，暂不适合追高成长久期。",
     },
     {
-      asset: "TLT",
+      asset: "长债/TLT",
       bias: bias.duration,
       summary:
         bias.duration === "bullish"
-          ? "The bond market is validating cuts, keeping long duration in play."
+          ? "美债市场认可降息路径，长久期资产获得更干净顺风。"
           : bias.duration === "neutral"
-            ? "Short-end relief is not enough; wait for clearer 10Y/30Y confirmation."
-            : "Long-end resistance argues against chasing duration here.",
+            ? "短端松动还不够，TLT 需要 10Y/30Y 继续确认。"
+            : "长端收益率抗拒下行，追多 TLT 的胜率下降。",
     },
     {
-      asset: "Gold",
+      asset: "黄金",
       bias: bias.gold,
       summary:
         bias.gold === "bullish"
-          ? "Policy-risk or inflation hedging demand can support gold even if growth assets wobble."
-          : "Gold is less central unless real yields or policy risk deteriorate again.",
+          ? "政治化降息或通胀黏性会增加黄金的避险和对冲价值。"
+          : "若真实利率和政策风险没有恶化，黄金不是主线资产。",
     },
     {
       asset: "BTC",
       bias: bias.btc,
       summary:
         bias.btc === "bullish"
-          ? "Liquidity expectations and risk appetite are aligned enough for crypto beta."
+          ? "流动性预期与风险偏好同向时，BTC 更容易获得弹性。"
           : bias.btc === "volatile"
-            ? "Liquidity hopes help, but bond-market confirmation is too mixed for clean trend."
-            : "Weak liquidity confirmation leaves crypto exposed to risk-off reversals.",
+            ? "流动性想象有支撑，但美债确认不足会放大波动。"
+            : "降息健康度偏弱时，BTC 容易受风险偏好回落拖累。",
     },
   ];
 }
@@ -547,22 +720,22 @@ function assetImpactSummary(radar: {
   signals: ReturnType<typeof calculateSignals>;
 }): string {
   if (radar.politicalCutRisk) {
-    return "Risk assets may react to short-end easing, but rising long-end yields make the trade fragile; favor optionality and hedges over clean beta.";
+    return "短端押注降息但长端不信，恒科、纳指成长和 BTC 可能高波动，TLT 仍需谨慎。";
   }
 
   if (radar.score >= 80) {
-    return "Healthy cut expectations favor duration and quality beta: Nasdaq Growth, Hang Seng Tech, TLT and BTC all have a cleaner tailwind.";
+    return "健康降息预期正在形成，恒科、纳指成长、TLT 与 BTC 的宏观顺风更干净。";
   }
 
   if (radar.score >= 60) {
-    return "The trade is warming, not confirmed: growth beta can work, while TLT and BTC still need bond-market follow-through.";
+    return "降息预期升温但未完全确认，成长资产偏友好，TLT 和 BTC 仍看长端配合。";
   }
 
   if (radar.score >= 40) {
-    return "The setup is mixed; treat rallies as tactical until oil, inflation and the long end line up.";
+    return "信号分裂，资产端以战术反弹看待，等待油价、通胀和长端美债同向。";
   }
 
-  return "The macro setup is not supportive; risk beta and long duration remain vulnerable.";
+  return "宏观组合暂不支持健康降息，高弹性资产和长久期资产都需要防守。";
 }
 
 function statusForScore(score: number, politicalCutRisk: boolean): RadarStatus {
@@ -577,11 +750,11 @@ function statusForScore(score: number, politicalCutRisk: boolean): RadarStatus {
 function statusSummary(status: RadarStatus): string {
   const summaries: Record<RadarStatus, string> = {
     "Healthy Rate Cut Expectation":
-      "油价、通胀和美债同时配合，健康降息预期正在形成。",
+      "油价、底层通胀和美债同时配合，健康降息预期正在形成。",
     "Rate Cut Expectation Warming":
       "降息预期正在升温，但仍需要更多通胀或长端利率确认。",
     "Mixed / Wait and See":
-      "信号仍然分裂，降息交易处于修复但不健康状态。",
+      "信号仍然分裂，降息交易处于修复但不够健康状态。",
     "Rate Cut Expectation Weak":
       "关键宏观信号支持不足，降息预期偏弱。",
     "Political Cut Risk":
@@ -612,6 +785,7 @@ export function calculateRateCutRadar(series: DashboardSeries): RateCutRadar {
   const status = statusForScore(score, politicalCutRisk);
   const signalChanges = buildSignalChanges(signals, previousSignals);
   const keyMoves = buildKeyMoves(series);
+  const keyMetrics = buildKeyMetrics(series, signals);
   const assetImpact = buildAssetImpact({ score, politicalCutRisk, signals });
 
   return {
@@ -623,6 +797,7 @@ export function calculateRateCutRadar(series: DashboardSeries): RateCutRadar {
     signals,
     signalChanges,
     whatChanged: buildWhatChangedToday(score, previousScore, signalChanges, keyMoves),
+    keyMetrics,
     assetImpact,
     assetImpactSummary: assetImpactSummary({ score, politicalCutRisk, signals }),
     politicalCutRisk,
