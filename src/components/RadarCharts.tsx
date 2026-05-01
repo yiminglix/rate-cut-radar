@@ -29,22 +29,26 @@ const axisStyle = {
 
 function formatDate(value: string): string {
   const date = new Date(`${value}T00:00:00`);
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
     day: "numeric",
   }).format(date);
 }
 
 function compactDate(value: string): string {
   const date = new Date(`${value}T00:00:00`);
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "numeric",
     year: "2-digit",
   }).format(date);
 }
 
 function last(points: SeriesPoint[], count: number): SeriesPoint[] {
   return points.slice(Math.max(points.length - count, 0));
+}
+
+function validPoints(points: SeriesPoint[]): SeriesPoint[] {
+  return points.filter((point) => Number.isFinite(point.value));
 }
 
 function mergeSeries(
@@ -63,13 +67,59 @@ function mergeSeries(
   return Array.from(rows.values()).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-function corePceMomentum(points: SeriesPoint[]): SeriesPoint[] {
-  return points.slice(1).map((point, index) => {
-    const previous = points[index];
+function annualizedFromIndex(
+  current: number,
+  previous: number,
+  months: number,
+): number {
+  return (Math.pow(current / previous, 12 / months) - 1) * 100;
+}
+
+function corePceThreeMonthAnnualizedSeries(points: SeriesPoint[]): SeriesPoint[] {
+  const clean = validPoints(points);
+
+  return clean.slice(3).map((point, index) => {
+    const previous = clean[index];
     return {
       date: point.date,
-      value: ((point.value - previous.value) / previous.value) * 100,
+      value: annualizedFromIndex(point.value, previous.value, 3),
     };
+  });
+}
+
+function monthlyRateFromAnnualized(value: number): number | null {
+  const annualMultiplier = 1 + value / 100;
+  if (annualMultiplier <= 0) return null;
+  return Math.pow(annualMultiplier, 1 / 12) - 1;
+}
+
+function annualizedTrimmedWindow(points: SeriesPoint[]): number | null {
+  let multiplier = 1;
+
+  for (const point of points) {
+    const monthlyRate = monthlyRateFromAnnualized(point.value);
+    if (monthlyRate === null) return null;
+    multiplier *= 1 + monthlyRate;
+  }
+
+  return (Math.pow(multiplier, 12 / points.length) - 1) * 100;
+}
+
+function trimmedMeanSixMonthAnnualizedSeries(points: SeriesPoint[]): SeriesPoint[] {
+  const clean = validPoints(points);
+
+  return clean.slice(5).flatMap((point, index) => {
+    const window = clean.slice(index, index + 6);
+    const value = annualizedTrimmedWindow(window);
+
+    return value === null
+      ? []
+      : [
+          {
+            date: point.date,
+            value,
+          },
+        ];
   });
 }
 
@@ -115,9 +165,9 @@ function ChartSkeleton() {
   return (
     <div className="grid gap-4">
       {[
-        "Energy is the first inflation gate",
-        "The long end decides whether cuts are healthy",
-        "Inflation must cool without forcing stress",
+        "油价是第一道通胀关口",
+        "长端美债决定降息是否健康",
+        "通胀需要自然降温",
       ].map(
         (title) => (
           <section
@@ -175,15 +225,23 @@ export function RadarCharts({ series }: RadarChartsProps) {
   ]);
 
   const pceData = mergeSeries([
-    { key: "Core PCE MoM", points: corePceMomentum(last(series.PCEPILFE, 18)) },
-    { key: "Trimmed Mean", points: last(series.PCETRIM1M158SFRBDAL, 18) },
+    {
+      key: "Core PCE 3M年化",
+      points: corePceThreeMonthAnnualizedSeries(last(series.PCEPILFE, 24)),
+    },
+    {
+      key: "Trimmed Mean PCE 6M年化",
+      points: trimmedMeanSixMonthAnnualizedSeries(
+        last(series.PCETRIM1M158SFRBDAL, 24),
+      ),
+    },
   ]);
 
   return (
     <div className="grid gap-4">
       <ChartPanel
-        title="Energy is the first inflation gate"
-        subtitle="Brent needs to stay off the highs for the cut story to stay clean."
+        title="油价是第一道通胀关口"
+        subtitle="Brent 越远离近期高点，能源通胀对降息空间的挤压越小。"
       >
         <ResponsiveContainer
           width="100%"
@@ -223,8 +281,8 @@ export function RadarCharts({ series }: RadarChartsProps) {
       </ChartPanel>
 
       <ChartPanel
-        title="The long end decides whether cuts are healthy"
-        subtitle="2Y can price cuts first; 10Y and 30Y decide whether the market believes them."
+        title="长端美债决定降息是否健康"
+        subtitle="2Y 可以先交易降息，10Y 和 30Y 才决定市场是否真正买账。"
       >
         <ResponsiveContainer
           width="100%"
@@ -260,8 +318,8 @@ export function RadarCharts({ series }: RadarChartsProps) {
       </ChartPanel>
 
       <ChartPanel
-        title="Inflation must cool without forcing stress"
-        subtitle="Core PCE momentum and trimmed mean inflation need to slow together."
+        title="通胀需要自然降温"
+        subtitle="Core PCE 3M 年化和 Trimmed Mean PCE 6M 年化需要同步放缓。"
       >
         <ResponsiveContainer
           width="100%"
@@ -293,14 +351,14 @@ export function RadarCharts({ series }: RadarChartsProps) {
             <Legend iconType="plainline" wrapperStyle={{ fontSize: 12 }} />
             <Line
               type="monotone"
-              dataKey="Core PCE MoM"
+              dataKey="Core PCE 3M年化"
               stroke="#0f9f8f"
               strokeWidth={2.2}
               dot={false}
             />
             <Line
               type="monotone"
-              dataKey="Trimmed Mean"
+              dataKey="Trimmed Mean PCE 6M年化"
               stroke="#d64550"
               strokeWidth={2.2}
               dot={false}

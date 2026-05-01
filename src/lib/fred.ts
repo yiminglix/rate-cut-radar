@@ -27,7 +27,7 @@ function dateMonthsAgo(months: number): string {
 
 function getObservationMonths(): number {
   const configured = Number(process.env.FRED_OBSERVATION_MONTHS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 18;
+  return Number.isFinite(configured) && configured > 0 ? configured : 24;
 }
 
 function getRevalidateSeconds(): number {
