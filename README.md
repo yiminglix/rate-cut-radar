@@ -57,6 +57,8 @@ Optional variables:
 - `FRED_API_BASE_URL`: defaults to `https://api.stlouisfed.org/fred`
 - `FRED_OBSERVATION_MONTHS`: defaults to `24`
 - `FRED_REVALIDATE_SECONDS`: defaults to `3600` (1 hour)
+- `FRED_RETRY_ATTEMPTS`: defaults to `3`
+- `FRED_RETRY_DELAY_MS`: defaults to `750`
 
 ## Get a FRED API Key
 
