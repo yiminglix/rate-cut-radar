@@ -19,6 +19,10 @@ type FredObservationResponse = {
 
 export const FRED_SERIES_IDS = Object.keys(SERIES_META) as FredSeriesId[];
 
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+
+class NonRetryableFredError extends Error {}
+
 function dateMonthsAgo(months: number): string {
   const date = new Date();
   date.setMonth(date.getMonth() - months);
@@ -39,6 +43,32 @@ function getFredBaseUrl(): string {
   return process.env.FRED_API_BASE_URL ?? "https://api.stlouisfed.org/fred";
 }
 
+function getRetryAttempts(): number {
+  const configured = Number(process.env.FRED_RETRY_ATTEMPTS);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.min(Math.floor(configured), 5)
+    : 3;
+}
+
+function getRetryDelayMs(): number {
+  const configured = Number(process.env.FRED_RETRY_DELAY_MS);
+  return Number.isFinite(configured) && configured >= 0 ? configured : 750;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function retryDelay(attempt: number): number {
+  return getRetryDelayMs() * attempt;
+}
+
+function shouldRetryStatus(status: number): boolean {
+  return RETRYABLE_STATUS_CODES.has(status);
+}
+
 function parseObservations(observations: FredObservation[] = []): SeriesPoint[] {
   return observations
     .map((observation) => ({
@@ -52,6 +82,7 @@ async function fetchFredSeries(
   seriesId: FredSeriesId,
   apiKey: string,
 ): Promise<SeriesPoint[]> {
+  const retryAttempts = getRetryAttempts();
   const url = new URL(`${getFredBaseUrl().replace(/\/$/, "")}/series/observations`);
   url.searchParams.set("series_id", seriesId);
   url.searchParams.set("api_key", apiKey);
@@ -59,25 +90,75 @@ async function fetchFredSeries(
   url.searchParams.set("sort_order", "asc");
   url.searchParams.set("observation_start", dateMonthsAgo(getObservationMonths()));
 
-  const response = await fetch(url, {
-    next: { revalidate: getRevalidateSeconds() },
-  });
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    throw new Error(`${seriesId} returned HTTP ${response.status}`);
+  for (let attempt = 1; attempt <= retryAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "x-rate-cut-radar-retry-attempt": String(attempt),
+        },
+        next: { revalidate: getRevalidateSeconds() },
+      });
+
+      if (!response.ok) {
+        lastError = new Error(`${seriesId} returned HTTP ${response.status}`);
+
+        if (!shouldRetryStatus(response.status)) {
+          throw new NonRetryableFredError(lastError.message);
+        }
+
+        if (attempt < retryAttempts) {
+          await sleep(retryDelay(attempt));
+          continue;
+        }
+
+        throw lastError;
+      }
+
+      const payload = (await response.json()) as FredObservationResponse;
+      if (payload.error_code) {
+        lastError = new Error(
+          `${seriesId}: ${payload.error_message ?? "FRED API error"}`,
+        );
+
+        if (!shouldRetryStatus(payload.error_code)) {
+          throw new NonRetryableFredError(lastError.message);
+        }
+
+        if (attempt < retryAttempts) {
+          await sleep(retryDelay(attempt));
+          continue;
+        }
+
+        throw lastError;
+      }
+
+      const points = parseObservations(payload.observations);
+      if (points.length === 0) {
+        throw new NonRetryableFredError(
+          `${seriesId} returned no usable observations`,
+        );
+      }
+
+      return points;
+    } catch (error) {
+      if (error instanceof NonRetryableFredError) {
+        throw error;
+      }
+
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      if (attempt < retryAttempts) {
+        await sleep(retryDelay(attempt));
+        continue;
+      }
+    }
   }
 
-  const payload = (await response.json()) as FredObservationResponse;
-  if (payload.error_code) {
-    throw new Error(`${seriesId}: ${payload.error_message ?? "FRED API error"}`);
-  }
-
-  const points = parseObservations(payload.observations);
-  if (points.length === 0) {
-    throw new Error(`${seriesId} returned no usable observations`);
-  }
-
-  return points;
+  throw new Error(
+    `${lastError?.message ?? `${seriesId} request failed`} after ${retryAttempts} attempts`,
+  );
 }
 
 function mockDashboardData(warning: string): DashboardData {
