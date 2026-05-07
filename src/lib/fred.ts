@@ -17,9 +17,19 @@ type FredObservationResponse = {
   error_message?: string;
 };
 
+type OilpriceQuote = {
+  time?: number | string;
+  price?: number | string;
+};
+
+type OilpriceLastResponse = Record<string, OilpriceQuote | undefined>;
+
 export const FRED_SERIES_IDS = Object.keys(SERIES_META) as FredSeriesId[];
 
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
+const BRENT_OILPRICE_BLEND_ID = "46";
+const BRENT_MARKET_DATA_URL =
+  "https://s3.amazonaws.com/oilprice.com/widgets/oilprices/all/last.json";
 
 class NonRetryableFredError extends Error {}
 
@@ -55,6 +65,20 @@ function getRetryDelayMs(): number {
   return Number.isFinite(configured) && configured >= 0 ? configured : 750;
 }
 
+function getDailyStaleDays(): number {
+  const configured = Number(process.env.FRED_DAILY_STALE_DAYS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 3;
+}
+
+function getMonthlyStaleDays(): number {
+  const configured = Number(process.env.FRED_MONTHLY_STALE_DAYS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 75;
+}
+
+function getBrentMarketDataUrl(): string {
+  return process.env.BRENT_MARKET_DATA_URL ?? BRENT_MARKET_DATA_URL;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -76,6 +100,123 @@ function parseObservations(observations: FredObservation[] = []): SeriesPoint[] 
       value: Number.parseFloat(observation.value),
     }))
     .filter((point) => Number.isFinite(point.value));
+}
+
+function latestPoint(points: SeriesPoint[]): SeriesPoint | undefined {
+  return points.filter((point) => Number.isFinite(point.value)).at(-1);
+}
+
+function daysSince(dateString: string, now = new Date()): number {
+  const date = new Date(`${dateString}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return Number.POSITIVE_INFINITY;
+
+  return Math.floor((now.getTime() - date.getTime()) / 86_400_000);
+}
+
+function isStale(points: SeriesPoint[], maxAgeDays: number): boolean {
+  const point = latestPoint(points);
+  return !point || daysSince(point.date) > maxAgeDays;
+}
+
+function upsertLatestPoint(points: SeriesPoint[], point: SeriesPoint): SeriesPoint[] {
+  const clean = parseObservations(
+    points.map((item) => ({ date: item.date, value: String(item.value) })),
+  );
+  const index = clean.findIndex((item) => item.date === point.date);
+
+  if (index >= 0) {
+    return clean.map((item, itemIndex) => (itemIndex === index ? point : item));
+  }
+
+  return [...clean, point].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function numberFrom(value: number | string | undefined): number | null {
+  const parsed = typeof value === "number" ? value : Number.parseFloat(value ?? "");
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function fetchBrentMarketQuote(): Promise<SeriesPoint> {
+  const response = await fetch(getBrentMarketDataUrl(), {
+    next: { revalidate: getRevalidateSeconds() },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Brent market quote returned HTTP ${response.status}`);
+  }
+
+  const payload = (await response.json()) as OilpriceLastResponse;
+  const quote = payload[BRENT_OILPRICE_BLEND_ID];
+  const price = numberFrom(quote?.price);
+  const timestamp = numberFrom(quote?.time);
+
+  if (price === null || timestamp === null) {
+    throw new Error("Brent market quote returned no usable price");
+  }
+
+  return {
+    date: new Date(timestamp * 1_000).toISOString().slice(0, 10),
+    value: price,
+  };
+}
+
+async function supplementBrentMarketQuote(
+  series: DashboardSeries,
+): Promise<{ series: DashboardSeries; notice?: string; usedMarketQuote: boolean }> {
+  const fredLatest = latestPoint(series.DCOILBRENTEU);
+
+  try {
+    const quote = await fetchBrentMarketQuote();
+    const nextSeries = upsertLatestPoint(series.DCOILBRENTEU, quote);
+    const shouldUseQuote =
+      !fredLatest ||
+      quote.date >= fredLatest.date ||
+      isStale(series.DCOILBRENTEU, getDailyStaleDays());
+
+    if (!shouldUseQuote) {
+      return { series, usedMarketQuote: false };
+    }
+
+    return {
+      series: {
+        ...series,
+        DCOILBRENTEU: nextSeries,
+      },
+      notice: fredLatest
+        ? `Brent 最新价使用 Oilprice/Barcharts 市场报价（${quote.date}，${quote.value} 美元/桶）；FRED Brent 现货最新观测仍停在 ${fredLatest.date}。`
+        : `Brent 最新价使用 Oilprice/Barcharts 市场报价（${quote.date}，${quote.value} 美元/桶）。`,
+      usedMarketQuote: true,
+    };
+  } catch (error) {
+    if (!isStale(series.DCOILBRENTEU, getDailyStaleDays())) {
+      return { series, usedMarketQuote: false };
+    }
+
+    const message = error instanceof Error ? error.message : "unknown error";
+    return {
+      series,
+      notice: `Brent 市场报价暂时不可用，且 FRED Brent 数据可能滞后。错误信息：${message}`,
+      usedMarketQuote: false,
+    };
+  }
+}
+
+function buildFreshnessNotices(series: DashboardSeries): string[] {
+  return FRED_SERIES_IDS.flatMap((seriesId) => {
+    const meta = SERIES_META[seriesId];
+    const point = latestPoint(series[seriesId]);
+    if (!point) return [`${meta.shortName} 暂无有效数据。`];
+
+    const maxAgeDays =
+      meta.frequency === "daily" ? getDailyStaleDays() : getMonthlyStaleDays();
+    const age = daysSince(point.date);
+
+    return age > maxAgeDays
+      ? [
+          `${meta.shortName} 最新观测为 ${point.date}，已滞后约 ${age} 天，请谨慎解读。`,
+        ]
+      : [];
+  });
 }
 
 async function fetchFredSeries(
@@ -161,12 +302,13 @@ async function fetchFredSeries(
   );
 }
 
-function mockDashboardData(warning: string): DashboardData {
+function mockDashboardData(warning: string, notices: string[] = []): DashboardData {
   return {
     series: mockDashboardSeries,
     source: "mock",
     updatedAt: new Date().toISOString(),
     warning,
+    notices,
   };
 }
 
@@ -180,17 +322,57 @@ export async function getDashboardData(): Promise<DashboardData> {
   }
 
   try {
-    const entries = await Promise.all(
+    const entries = await Promise.allSettled(
       FRED_SERIES_IDS.map(async (seriesId) => [
         seriesId,
         await fetchFredSeries(seriesId, apiKey),
-      ]),
+      ] as const),
     );
+    const failures: string[] = [];
+    const series = {} as DashboardSeries;
+
+    entries.forEach((entry, index) => {
+      const seriesId = FRED_SERIES_IDS[index];
+
+      if (entry.status === "fulfilled") {
+        const [id, points] = entry.value;
+        series[id] = points;
+        return;
+      }
+
+      const message =
+        entry.reason instanceof Error ? entry.reason.message : String(entry.reason);
+      failures.push(`${seriesId}: ${message}`);
+      series[seriesId] = mockDashboardSeries[seriesId];
+    });
+
+    if (failures.length === FRED_SERIES_IDS.length) {
+      return mockDashboardData(
+        `FRED API 暂时不可用，已自动切换到 mock data。错误信息：${failures[0]}`,
+      );
+    }
+
+    const supplemented = await supplementBrentMarketQuote(series);
+    const notices = [
+      ...buildFreshnessNotices(supplemented.series),
+      ...(supplemented.notice ? [supplemented.notice] : []),
+    ];
+    const source =
+      failures.length > 0
+        ? "partial"
+        : supplemented.usedMarketQuote
+          ? "fred+market"
+          : "fred";
 
     return {
-      series: Object.fromEntries(entries) as DashboardSeries,
-      source: "fred",
+      series: supplemented.series,
+      source,
       updatedAt: new Date().toISOString(),
+      warning:
+        failures.length > 0
+          ? `部分 FRED 指标暂时不可用，已仅对失败指标使用模拟数据：${failures.join("；")}`
+          : undefined,
+      notices,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";
