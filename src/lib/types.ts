@@ -22,13 +22,14 @@ export type SeriesMeta = {
 
 export type DashboardSeries = Record<FredSeriesId, SeriesPoint[]>;
 
-export type DataSource = "fred" | "mock";
+export type DataSource = "fred" | "fred+market" | "partial" | "mock";
 
 export type DashboardData = {
   series: DashboardSeries;
   source: DataSource;
   updatedAt: string;
   warning?: string;
+  notices?: string[];
 };
 
 export type SignalColor = "green" | "yellow" | "red" | "stale";

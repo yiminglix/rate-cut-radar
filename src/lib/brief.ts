@@ -80,10 +80,14 @@ export function generateDailyBrief(
   radar: RateCutRadar,
   source: DataSource,
 ): string {
-  const sourcePhrase =
-    source === "fred" ? "基于 FRED 最新可用数据" : "基于本地 mock data 预览";
+  const sourcePhrases: Record<DataSource, string> = {
+    fred: "基于 FRED 最新可用数据",
+    "fred+market": "基于 FRED 数据，并用市场报价补充 Brent 最新点",
+    partial: "基于部分 FRED 数据，失败指标使用模拟数据兜底",
+    mock: "基于本地 mock data 预览",
+  };
 
-  return `${sourcePhrase}，降息预期分数当前为 ${radar.score} 分，${deltaPhrase(
+  return `${sourcePhrases[source]}，降息预期分数当前为 ${radar.score} 分，${deltaPhrase(
     radar.scoreDelta,
   )}，当前状态为${statusLabel(radar.status)}。${oilPhrase(
     radar.signals.oil.color,

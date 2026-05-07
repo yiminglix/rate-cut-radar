@@ -22,6 +22,7 @@ The home screen prioritizes daily decision-making in Chinese:
 - Tailwind CSS
 - Recharts
 - FRED API as the preferred data source
+- Brent market quote supplement when FRED's Brent spot series is stale
 - Built-in mock data when no FRED API key is configured
 
 ## FRED Series
@@ -35,6 +36,8 @@ The first version reads these FRED series:
 - `PCEPILFE`: Core PCE Price Index
 - `PCETRIM1M158SFRBDAL`: Trimmed Mean PCE Inflation Rate
 - `DCOILBRENTEU`: Brent crude oil price
+
+Brent is still seeded from FRED history, but the latest point can be supplemented from Oilprice/Barcharts because the FRED Brent spot series may lag fast-moving futures markets by several days.
 
 ## Environment
 
@@ -59,6 +62,9 @@ Optional variables:
 - `FRED_REVALIDATE_SECONDS`: defaults to `3600` (1 hour)
 - `FRED_RETRY_ATTEMPTS`: defaults to `3`
 - `FRED_RETRY_DELAY_MS`: defaults to `750`
+- `FRED_DAILY_STALE_DAYS`: defaults to `3`
+- `FRED_MONTHLY_STALE_DAYS`: defaults to `75`
+- `BRENT_MARKET_DATA_URL`: defaults to Oilprice/Barcharts' public latest-prices JSON and is used only to supplement Brent when the FRED Brent spot series is stale
 
 ## Get a FRED API Key
 

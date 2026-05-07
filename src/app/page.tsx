@@ -5,6 +5,7 @@ import { calculateRateCutRadar } from "@/lib/signals";
 import type {
   AssetBias,
   AssetImpact,
+  DataSource,
   MarketMove,
   RadarStatus,
   RateCutRadar,
@@ -499,7 +500,7 @@ function Methodology() {
           总分由三部分组成：油价信号 30 分，通胀信号 35 分，美债信号 35 分。已确认得满分，未确认得一半，偏粘或数据不足得 0 分。
         </p>
         <p>
-          油价信号使用 Brent 当前价格相对近 20 个有效交易日高点的回撤，并结合 20 日均线判断能源通胀压力是否缓和。
+          油价信号使用 Brent 当前价格相对近 20 个有效交易日高点的回撤，并结合 20 日均线判断能源通胀压力是否缓和。FRED Brent 现货若明显滞后，会用更接近交易盘面的 Brent 市场报价补最新点。
         </p>
         <p>
           通胀信号不使用 Core PCE 或 Trimmed Mean PCE 的指数水平判断方向，而是使用 Core PCE YoY、Core PCE 3M 年化和 Trimmed Mean PCE 6M 年化判断底层通胀是否自然降温。
@@ -512,12 +513,45 @@ function Methodology() {
   );
 }
 
+function sourceLabel(source: DataSource): string {
+  const labels: Record<DataSource, string> = {
+    fred: "FRED",
+    "fred+market": "FRED + 市场报价",
+    partial: "部分 FRED + 模拟数据",
+    mock: "模拟数据",
+  };
+
+  return labels[source];
+}
+
+function DataNotice({
+  warning,
+  notices,
+}: {
+  warning?: string;
+  notices?: string[];
+}) {
+  if (!warning && (!notices || notices.length === 0)) return null;
+
+  return (
+    <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+      {warning ? <p className="font-medium">{warning}</p> : null}
+      {notices && notices.length > 0 ? (
+        <ul className={warning ? "mt-2 space-y-1" : "space-y-1"}>
+          {notices.map((notice) => (
+            <li key={notice}>{notice}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 export default async function Home() {
   const data = await getDashboardData();
   const radar = calculateRateCutRadar(data.series);
   const brief = generateDailyBrief(radar, data.source);
   const executiveSummary = generateExecutiveSummary(radar);
-  const sourceLabel = data.source === "fred" ? "FRED" : "模拟数据";
 
   return (
     <main className="min-h-screen bg-[#f4f5f7] text-zinc-950">
@@ -535,7 +569,7 @@ export default async function Home() {
           <div className="text-right">
             <p className="font-mono text-xs text-zinc-600">{formatUpdatedAt(data.updatedAt)}</p>
             <p className="mt-1 text-[11px] tracking-[0.12em] text-zinc-400">
-              数据源：{sourceLabel}
+              数据源：{sourceLabel(data.source)}
             </p>
           </div>
         </header>
@@ -548,11 +582,7 @@ export default async function Home() {
           </div>
         </section>
 
-        {data.warning ? (
-          <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
-            {data.warning}
-          </section>
-        ) : null}
+        <DataNotice warning={data.warning} notices={data.notices} />
 
         <DailyBrief brief={brief} />
 
