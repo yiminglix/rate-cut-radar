@@ -32,7 +32,7 @@ function getObservationMonths(): number {
 
 function getRevalidateSeconds(): number {
   const configured = Number(process.env.FRED_REVALIDATE_SECONDS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 21_600;
+  return Number.isFinite(configured) && configured > 0 ? configured : 3_600;
 }
 
 function getFredBaseUrl(): string {

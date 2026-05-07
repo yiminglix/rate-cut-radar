@@ -12,7 +12,7 @@ import type {
   SignalResult,
 } from "@/lib/types";
 
-export const revalidate = 21_600;
+export const revalidate = 3_600;
 
 const signalTone: Record<
   SignalColor,
