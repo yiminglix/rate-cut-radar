@@ -10,6 +10,7 @@ import type {
   RadarStatus,
   RateCutRadar,
   SignalColor,
+  SignalName,
   SignalResult,
 } from "@/lib/types";
 
@@ -102,6 +103,13 @@ function formatUpdatedAt(value: string): string {
 function deltaText(delta: number): string {
   if (delta > 0) return `+${delta}`;
   return `${delta}`;
+}
+
+function signalColorLabel(name: SignalName, color: SignalColor): string {
+  if (color === "green") return "已确认";
+  if (color === "yellow") return "未确认";
+  if (color === "stale") return "数据不足";
+  return name === "inflation" ? "偏粘" : "风险";
 }
 
 function percentDetail(value: unknown): string {
@@ -207,7 +215,7 @@ function ScoreCard({ radar }: { radar: RateCutRadar }) {
           </p>
         </div>
         <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-white/10">
-          V1.6
+          V1.7
         </span>
       </div>
       <div className="mt-3 flex items-center justify-center">
@@ -264,7 +272,7 @@ function FirstScreenImpact({ radar }: { radar: RateCutRadar }) {
   );
 }
 
-function SignalPill({ color }: { color: SignalColor }) {
+function SignalPill({ color, label }: { color: SignalColor; label?: string }) {
   const tone = signalTone[color];
 
   return (
@@ -272,7 +280,7 @@ function SignalPill({ color }: { color: SignalColor }) {
       className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold ring-1 ${tone.badge}`}
     >
       <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
-      {tone.label}
+      {label ?? tone.label}
     </span>
   );
 }
@@ -289,7 +297,7 @@ function SignalCard({ signal }: { signal: SignalResult }) {
             {signal.score}/{signal.maxScore} 分
           </p>
         </div>
-        <SignalPill color={signal.color} />
+        <SignalPill color={signal.color} label={signalColorLabel(signal.name, signal.color)} />
       </div>
       <p className="mt-4 text-sm leading-6 text-zinc-700">{signal.summary}</p>
       <SignalDetails signal={signal} />
@@ -314,6 +322,67 @@ function SignalDetails({ signal }: { signal: SignalResult }) {
         <DetailItem label="2Y 5日" value={String(signal.details.twoYearChange ?? "数据不足")} />
         <DetailItem label="10Y 5日" value={String(signal.details.tenYearChange ?? "数据不足")} />
         <DetailItem label="30Y 5日" value={String(signal.details.thirtyYearChange ?? "数据不足")} />
+      </dl>
+    );
+  }
+
+  if (signal.name === "labor") {
+    return (
+      <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
+        <DetailItem
+          label="最新初请"
+          value={String(signal.details.currentClaimsLabel ?? "数据不足")}
+        />
+        <DetailItem
+          label="4周均值"
+          value={String(signal.details.recent4wAverageLabel ?? "数据不足")}
+        />
+        <DetailItem
+          label="4周变化"
+          value={percentDetail(signal.details.fourWeekChangePct)}
+        />
+      </dl>
+    );
+  }
+
+  if (signal.name === "credit") {
+    return (
+      <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
+        <DetailItem
+          label="HY OAS"
+          value={
+            typeof signal.details.highYieldOas === "number"
+              ? `${signal.details.highYieldOas}%`
+              : "数据不足"
+          }
+        />
+        <DetailItem
+          label="5日变化"
+          value={String(signal.details.highYieldOasChange ?? "数据不足")}
+        />
+      </dl>
+    );
+  }
+
+  if (signal.name === "inflationExpectations") {
+    return (
+      <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
+        <DetailItem
+          label="5Y5Y"
+          value={
+            typeof signal.details.fiveYearForward === "number"
+              ? `${signal.details.fiveYearForward}%`
+              : "数据不足"
+          }
+        />
+        <DetailItem
+          label="10Y BE"
+          value={
+            typeof signal.details.tenYearBreakeven === "number"
+              ? `${signal.details.tenYearBreakeven}%`
+              : "数据不足"
+          }
+        />
       </dl>
     );
   }
@@ -392,12 +461,15 @@ function WhatChangedToday({ radar }: { radar: RateCutRadar }) {
               changedSignals.map((change) => (
                 <div key={change.name} className="flex items-start justify-between gap-3">
                   <p className="text-sm leading-6 text-zinc-700">{change.summary}</p>
-                  <SignalPill color={change.currentColor} />
+                  <SignalPill
+                    color={change.currentColor}
+                    label={signalColorLabel(change.name, change.currentColor)}
+                  />
                 </div>
               ))
             ) : (
               <p className="text-sm leading-6 text-zinc-700">
-                三盏灯未变化，今天主要观察油价、美债和通胀的延续性。
+                核心信号和健康校验未变化，今天主要观察油价、美债、就业和信用的延续性。
               </p>
             )}
           </div>
@@ -528,7 +600,7 @@ function Methodology() {
       </summary>
       <div className="mt-4 space-y-4 border-t border-zinc-200 pt-4 text-sm leading-7 text-zinc-700">
         <p>
-          总分由三部分组成：油价信号 30 分，通胀信号 35 分，美债信号 35 分。已确认得满分，未确认得一半，偏粘或数据不足得 0 分。
+          总分仍为 100 分，由三类核心信号和三类健康校验组成：油价 20 分，通胀 25 分，美债 25 分，劳动力 10 分，信用压力 10 分，通胀预期 10 分。已确认得满分，未确认得一半，风险、偏粘或数据不足得 0 分。
         </p>
         <p>
           油价信号使用 Brent 当前价格相对近 20 个有效交易日高点的回撤，并结合 20 日均线判断能源通胀压力是否缓和。FRED Brent 现货若明显滞后，会用更接近交易盘面的 Brent 市场报价补最新点。
@@ -538,6 +610,9 @@ function Methodology() {
         </p>
         <p>
           美债信号比较 2Y、10Y、30Y 最近 5 个有效交易日变化。若 2Y 下行但 10Y/30Y 明显上行，状态会切换为政治化降息风险。
+        </p>
+        <p>
+          健康校验用来区分健康降息和压力降息：初请失业金判断就业是否温和降温，高收益债 OAS 判断信用市场是否恐慌，5Y5Y 与 10Y breakeven 判断通胀预期是否仍被锚住。若就业或信用压力明显恶化，即使降息预期升温，也不会直接标记为健康降息。
         </p>
       </div>
     </details>
@@ -626,6 +701,22 @@ export default async function Home() {
           <SignalCard signal={radar.signals.oil} />
           <SignalCard signal={radar.signals.inflation} />
           <SignalCard signal={radar.signals.bond} />
+        </section>
+
+        <section>
+          <div className="mb-3">
+            <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">
+              健康校验
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-zinc-950">
+              区分健康降息和压力降息
+            </h2>
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            <SignalCard signal={radar.signals.labor} />
+            <SignalCard signal={radar.signals.credit} />
+            <SignalCard signal={radar.signals.inflationExpectations} />
+          </div>
         </section>
 
         <AssetImpactSection radar={radar} />

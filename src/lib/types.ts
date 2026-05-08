@@ -3,6 +3,10 @@ export type FredSeriesId =
   | "DGS10"
   | "DGS30"
   | "T10Y2Y"
+  | "T10YIE"
+  | "T5YIFR"
+  | "BAMLH0A0HYM2"
+  | "ICSA"
   | "PCEPILFE"
   | "PCETRIM1M158SFRBDAL"
   | "DCOILBRENTEU";
@@ -17,7 +21,7 @@ export type SeriesMeta = {
   name: string;
   shortName: string;
   unit: string;
-  frequency: "daily" | "monthly";
+  frequency: "daily" | "weekly" | "monthly";
 };
 
 export type DashboardSeries = Record<FredSeriesId, SeriesPoint[]>;
@@ -62,7 +66,13 @@ export type DashboardData = {
 
 export type SignalColor = "green" | "yellow" | "red" | "stale";
 
-export type SignalName = "oil" | "inflation" | "bond";
+export type SignalName =
+  | "oil"
+  | "inflation"
+  | "bond"
+  | "labor"
+  | "credit"
+  | "inflationExpectations";
 
 export type SignalResult = {
   name: SignalName;
@@ -126,6 +136,9 @@ export type RateCutRadar = {
     oil: SignalResult;
     inflation: SignalResult;
     bond: SignalResult;
+    labor: SignalResult;
+    credit: SignalResult;
+    inflationExpectations: SignalResult;
   };
   signalChanges: SignalChange[];
   whatChanged: WhatChangedToday;
@@ -133,4 +146,5 @@ export type RateCutRadar = {
   assetImpact: AssetImpact[];
   assetImpactSummary: string;
   politicalCutRisk: boolean;
+  healthStressRisk: boolean;
 };

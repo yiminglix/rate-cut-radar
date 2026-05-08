@@ -74,6 +74,11 @@ function getDailyStaleDays(): number {
   return Number.isFinite(configured) && configured > 0 ? configured : 3;
 }
 
+function getWeeklyStaleDays(): number {
+  const configured = Number(process.env.FRED_WEEKLY_STALE_DAYS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 10;
+}
+
 function getMonthlyStaleDays(): number {
   const configured = Number(process.env.FRED_MONTHLY_STALE_DAYS);
   return Number.isFinite(configured) && configured > 0 ? configured : 75;
@@ -307,7 +312,11 @@ function buildFreshnessNotices(series: DashboardSeries): string[] {
     if (!point) return [`${meta.shortName} 暂无有效数据。`];
 
     const maxAgeDays =
-      meta.frequency === "daily" ? getDailyStaleDays() : getMonthlyStaleDays();
+      meta.frequency === "daily"
+        ? getDailyStaleDays()
+        : meta.frequency === "weekly"
+          ? getWeeklyStaleDays()
+          : getMonthlyStaleDays();
     const age = daysSince(point.date);
 
     return age > maxAgeDays

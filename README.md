@@ -1,8 +1,8 @@
 # Rate Cut Radar
 
-Rate Cut Radar / 降息雷达 is a mobile-first macro decision dashboard for tracking whether a healthy rate cut expectation is forming. It links oil pressure, underlying inflation, and Treasury-market confirmation into a 0-100 score, then translates the setup into asset implications for Hang Seng Tech, NASDAQ growth, TLT, gold, and BTC.
+Rate Cut Radar / 降息雷达 is a mobile-first macro decision dashboard for tracking whether a healthy rate cut expectation is forming. It links oil pressure, underlying inflation, Treasury-market confirmation, labor cooling, credit stress, and market inflation expectations into a 0-100 score, then translates the setup into asset implications for Hang Seng Tech, NASDAQ growth, TLT, gold, and BTC.
 
-## V1.6 Decision Layer
+## V1.7 Decision Layer
 
 The home screen prioritizes daily decision-making in Chinese:
 
@@ -10,7 +10,8 @@ The home screen prioritizes daily decision-making in Chinese:
 - 今日变化 versus the previous trading day
 - 当前状态 and 今日一句话
 - 资产影响 for 恒生科技, 纳指成长, 长债/TLT, 黄金, and BTC
-- One set of three signal cards: 油价信号, 通胀信号, 美债信号
+- One set of three core signal cards: 油价信号, 通胀信号, 美债信号
+- Three health checks: 劳动力信号, 信用压力, 通胀预期
 - Processed 关键指标 instead of raw-only macro prints
 - Collapsed 详细简报 and 方法说明
 - 验证路径 charts with conclusion-led Chinese titles
@@ -28,12 +29,16 @@ The home screen prioritizes daily decision-making in Chinese:
 
 ## FRED Series
 
-The first version reads these FRED series:
+The dashboard reads these FRED series:
 
 - `DGS2`: 2-Year Treasury Constant Maturity Rate
 - `DGS10`: 10-Year Treasury Constant Maturity Rate
 - `DGS30`: 30-Year Treasury Constant Maturity Rate
 - `T10Y2Y`: 10Y-2Y Treasury spread
+- `T10YIE`: 10-Year Breakeven Inflation Rate
+- `T5YIFR`: 5-Year, 5-Year Forward Inflation Expectation Rate
+- `BAMLH0A0HYM2`: ICE BofA US High Yield Index Option-Adjusted Spread
+- `ICSA`: Initial Claims
 - `PCEPILFE`: Core PCE Price Index
 - `PCETRIM1M158SFRBDAL`: Trimmed Mean PCE Inflation Rate
 - `DCOILBRENTEU`: Brent crude oil price
@@ -66,6 +71,7 @@ Optional variables:
 - `FRED_RETRY_ATTEMPTS`: defaults to `3`
 - `FRED_RETRY_DELAY_MS`: defaults to `750`
 - `FRED_DAILY_STALE_DAYS`: defaults to `3`
+- `FRED_WEEKLY_STALE_DAYS`: defaults to `10`
 - `FRED_MONTHLY_STALE_DAYS`: defaults to `75`
 - `BRENT_MARKET_DATA_URL`: defaults to Oilprice/Barcharts' public latest-prices JSON and is used only to supplement Brent when the FRED Brent spot series is stale
 - `INFLATION_NOWCAST_URL`: defaults to Cleveland Fed Inflation Nowcasting and supplements official monthly PCE data
@@ -110,9 +116,12 @@ npm run build
 
 Total score:
 
-- 油价信号: 30 points
-- 通胀信号: 35 points
-- 美债信号: 35 points
+- 油价信号: 20 points
+- 通胀信号: 25 points
+- 美债信号: 25 points
+- 劳动力信号: 10 points
+- 信用压力: 10 points
+- 通胀预期: 10 points
 
 信号颜色:
 
@@ -129,8 +138,9 @@ Status:
 - `20-39`: Rate Cut Expectation Weak
 - `<20`: Rate Cut Expectation Failed
 - Special case: if 2Y yields fall while 10Y or 30Y yields rise clearly, the status becomes Political Cut Risk.
+- Health check case: if labor or credit stress turns red, the dashboard will not label the regime as fully healthy even when rate-cut pricing is warming.
 
-V1.6 通胀逻辑:
+通胀逻辑:
 
 - Core PCE YoY checks whether the year-over-year inflation rate is slowing.
 - Core PCE 3M annualized checks short-term underlying inflation momentum.
@@ -138,6 +148,13 @@ V1.6 通胀逻辑:
 - PCE inputs are official monthly data, so the dashboard displays the latest official observation month instead of implying daily freshness.
 - If official PCE is behind the market date, the dashboard also displays Cleveland Fed Core PCE nowcast for the latest unreleased month and uses it as a timeliness overlay.
 - If there is not enough PCE history, the app shows 数据不足 instead of judging inflation from index levels.
+
+V1.7 健康校验:
+
+- Initial Claims checks whether the labor market is cooling gently or breaking abruptly.
+- High Yield OAS checks whether lower yields are happening without credit panic.
+- 5Y5Y inflation expectations and 10Y breakeven inflation check whether the market still believes inflation is anchored.
+- A healthy rate-cut setup needs softer inflation, cooperative long-end Treasuries, calm credit, and labor cooling that is not recessionary.
 
 ## Code Structure
 

@@ -29,6 +29,34 @@ export const SERIES_META: Record<FredSeriesId, SeriesMeta> = {
     unit: "ppt",
     frequency: "daily",
   },
+  T10YIE: {
+    id: "T10YIE",
+    name: "10-Year Breakeven Inflation Rate",
+    shortName: "10Y Breakeven",
+    unit: "%",
+    frequency: "daily",
+  },
+  T5YIFR: {
+    id: "T5YIFR",
+    name: "5-Year, 5-Year Forward Inflation Expectation Rate",
+    shortName: "5Y5Y Inflation",
+    unit: "%",
+    frequency: "daily",
+  },
+  BAMLH0A0HYM2: {
+    id: "BAMLH0A0HYM2",
+    name: "ICE BofA US High Yield Index Option-Adjusted Spread",
+    shortName: "HY OAS",
+    unit: "%",
+    frequency: "daily",
+  },
+  ICSA: {
+    id: "ICSA",
+    name: "Initial Claims",
+    shortName: "Initial Claims",
+    unit: "number",
+    frequency: "weekly",
+  },
   PCEPILFE: {
     id: "PCEPILFE",
     name: "Core PCE Price Index",
@@ -102,6 +130,18 @@ const monthlyDates = [
   "2026-04-01",
 ];
 
+const weeklyDates = [
+  "2026-03-07",
+  "2026-03-14",
+  "2026-03-21",
+  "2026-03-28",
+  "2026-04-04",
+  "2026-04-11",
+  "2026-04-18",
+  "2026-04-25",
+  "2026-05-02",
+];
+
 function points(dates: string[], values: number[]): SeriesPoint[] {
   return dates.map((date, index) => ({ date, value: values[index] }));
 }
@@ -131,6 +171,24 @@ export const mockDashboardSeries: DashboardSeries = {
     0.17, 0.15, 0.17, 0.17, 0.17, 0.17, 0.19, 0.19, 0.19, 0.2, 0.21, 0.22,
     0.22, 0.23, 0.25, 0.26, 0.27, 0.28, 0.3, 0.3, 0.3, 0.3, 0.31, 0.31,
     0.31, 0.32,
+  ]),
+  T10YIE: points(dailyDates, [
+    2.52, 2.5, 2.49, 2.48, 2.47, 2.46, 2.45, 2.44, 2.43, 2.42, 2.4, 2.39,
+    2.38, 2.37, 2.36, 2.36, 2.35, 2.34, 2.34, 2.33, 2.33, 2.32, 2.32, 2.31,
+    2.31, 2.3,
+  ]),
+  T5YIFR: points(dailyDates, [
+    2.34, 2.33, 2.32, 2.31, 2.3, 2.3, 2.29, 2.28, 2.28, 2.27, 2.27, 2.26,
+    2.26, 2.25, 2.25, 2.24, 2.24, 2.23, 2.23, 2.22, 2.22, 2.21, 2.21, 2.2,
+    2.2, 2.19,
+  ]),
+  BAMLH0A0HYM2: points(dailyDates, [
+    3.08, 3.06, 3.04, 3.02, 3.01, 2.99, 2.97, 2.96, 2.94, 2.93, 2.91, 2.9,
+    2.89, 2.88, 2.86, 2.85, 2.84, 2.83, 2.82, 2.81, 2.8, 2.79, 2.78, 2.78,
+    2.77, 2.76,
+  ]),
+  ICSA: points(weeklyDates, [
+    224000, 219000, 216000, 213000, 218000, 208000, 215000, 190000, 200000,
   ]),
   PCEPILFE: points(monthlyDates, [
     128.7, 129.02, 129.34, 129.68, 130.03, 130.36,

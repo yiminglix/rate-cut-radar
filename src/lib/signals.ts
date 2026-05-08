@@ -14,9 +14,12 @@ import type {
   SignalResult,
 } from "./types";
 
-const OIL_WEIGHT = 30;
-const INFLATION_WEIGHT = 35;
-const BOND_WEIGHT = 35;
+const OIL_WEIGHT = 20;
+const INFLATION_WEIGHT = 25;
+const BOND_WEIGHT = 25;
+const LABOR_WEIGHT = 10;
+const CREDIT_WEIGHT = 10;
+const INFLATION_EXPECTATIONS_WEIGHT = 10;
 
 function validPoints(points: SeriesPoint[]): SeriesPoint[] {
   return points.filter((point) => Number.isFinite(point.value));
@@ -183,6 +186,181 @@ function calculateBondSignal(series: DashboardSeries): SignalResult {
       tenYearChangeBps: round(tenYear.changeBps, 1),
       thirtyYearChangeBps: round(thirtyYear.changeBps, 1),
       politicalCutRisk,
+    },
+  };
+}
+
+function average(points: SeriesPoint[]): number {
+  return points.reduce((sum, point) => sum + point.value, 0) / points.length;
+}
+
+function formatClaims(value: number): string {
+  return `${Math.round(value / 1_000)}k`;
+}
+
+function calculateLaborSignal(points: SeriesPoint[]): SignalResult {
+  const clean = validPoints(points);
+  const latestPoint = clean.at(-1);
+
+  if (!latestPoint || clean.length < 8) {
+    return {
+      name: "labor",
+      title: "劳动力信号",
+      color: "stale",
+      score: 0,
+      maxScore: LABOR_WEIGHT,
+      summary: "初请失业金数据不足，暂不判断就业是否温和降温。",
+      details: { dataPoints: clean.length, dataStatus: "数据不足" },
+    };
+  }
+
+  const recent4 = clean.slice(-4);
+  const previous4 = clean.slice(-8, -4);
+  const recentAverage = average(recent4);
+  const previousAverage = average(previous4);
+  const fourWeekChangePct =
+    ((recentAverage - previousAverage) / previousAverage) * 100;
+  const current = latestPoint.value;
+  const recessionStress = current >= 260_000 || fourWeekChangePct >= 12;
+  const healthyCooling =
+    current < 260_000 && fourWeekChangePct >= 2 && fourWeekChangePct < 12;
+
+  let color: SignalColor = "yellow";
+  if (healthyCooling) color = "green";
+  if (recessionStress) color = "red";
+
+  const summary =
+    color === "green"
+      ? "初请失业金温和走高但未失控，就业在降温而不是突然恶化，支持健康降息。"
+      : color === "red"
+        ? "初请失业金快速上行或已进入压力区，降息可能更像衰退式防守。"
+        : "就业信号还不够配合：劳动力市场仍偏稳，或降温幅度尚未形成健康确认。";
+
+  return {
+    name: "labor",
+    title: "劳动力信号",
+    color,
+    score: scoreFor(color, LABOR_WEIGHT),
+    maxScore: LABOR_WEIGHT,
+    summary,
+    details: {
+      currentClaims: Math.round(current),
+      currentClaimsLabel: formatClaims(current),
+      recent4wAverage: Math.round(recentAverage),
+      recent4wAverageLabel: formatClaims(recentAverage),
+      previous4wAverage: Math.round(previousAverage),
+      previous4wAverageLabel: formatClaims(previousAverage),
+      fourWeekChangePct: round(fourWeekChangePct, 1),
+      latestDate: latestPoint.date,
+      recessionStress,
+    },
+  };
+}
+
+function calculateCreditSignal(points: SeriesPoint[]): SignalResult {
+  const spread = changeOverFiveSessions(points);
+
+  if (!spread) {
+    return {
+      name: "credit",
+      title: "信用压力",
+      color: "stale",
+      score: 0,
+      maxScore: CREDIT_WEIGHT,
+      summary: "高收益债利差数据不足，暂不判断降息是否来自信用压力。",
+      details: { dataStatus: "数据不足" },
+    };
+  }
+
+  const fiveDayChangeBps = spread.changeBps;
+  const level = spread.current;
+  const calmCredit = level <= 3.5 && fiveDayChangeBps <= 20;
+  const creditStress = level >= 4.5 || fiveDayChangeBps >= 50;
+
+  let color: SignalColor = "yellow";
+  if (calmCredit) color = "green";
+  if (creditStress) color = "red";
+
+  const summary =
+    color === "green"
+      ? "高收益债利差低位稳定，信用市场没有把降息交易理解成危机。"
+      : color === "red"
+        ? "高收益债利差明显走阔，市场正在给企业信用风险重新定价。"
+        : "信用市场暂未拉响警报，但利差确认度还不够强。";
+
+  return {
+    name: "credit",
+    title: "信用压力",
+    color,
+    score: scoreFor(color, CREDIT_WEIGHT),
+    maxScore: CREDIT_WEIGHT,
+    summary,
+    details: {
+      highYieldOas: round(level, 2),
+      highYieldOasChange: formatBps(fiveDayChangeBps),
+      highYieldOasChangeBps: round(fiveDayChangeBps, 1),
+      creditStress,
+    },
+  };
+}
+
+function calculateInflationExpectationsSignal(
+  series: DashboardSeries,
+): SignalResult {
+  const fiveYearForward = changeOverFiveSessions(series.T5YIFR);
+  const tenYearBreakeven = changeOverFiveSessions(series.T10YIE);
+
+  if (!fiveYearForward || !tenYearBreakeven) {
+    return {
+      name: "inflationExpectations",
+      title: "通胀预期",
+      color: "stale",
+      score: 0,
+      maxScore: INFLATION_EXPECTATIONS_WEIGHT,
+      summary: "通胀预期数据不足，暂不判断市场是否担心再通胀。",
+      details: { dataStatus: "数据不足" },
+    };
+  }
+
+  const fiveYearChangeBps = fiveYearForward.changeBps;
+  const tenYearChangeBps = tenYearBreakeven.changeBps;
+  const anchored =
+    fiveYearForward.current <= 2.35 &&
+    tenYearBreakeven.current <= 2.6 &&
+    fiveYearChangeBps <= 5 &&
+    tenYearChangeBps <= 8;
+  const unanchored =
+    fiveYearForward.current >= 2.55 ||
+    tenYearBreakeven.current >= 2.8 ||
+    fiveYearChangeBps >= 15 ||
+    tenYearChangeBps >= 20;
+
+  let color: SignalColor = "yellow";
+  if (anchored) color = "green";
+  if (unanchored) color = "red";
+
+  const summary =
+    color === "green"
+      ? "5Y5Y 与 10Y breakeven 没有明显上行，市场通胀预期仍被锚住。"
+      : color === "red"
+        ? "通胀预期上行过快，降息交易可能重新撞上再通胀风险。"
+        : "通胀预期没有失控，但还需要继续观察油价和长端美债的配合。";
+
+  return {
+    name: "inflationExpectations",
+    title: "通胀预期",
+    color,
+    score: scoreFor(color, INFLATION_EXPECTATIONS_WEIGHT),
+    maxScore: INFLATION_EXPECTATIONS_WEIGHT,
+    summary,
+    details: {
+      fiveYearForward: round(fiveYearForward.current, 2),
+      fiveYearForwardChange: formatBps(fiveYearChangeBps),
+      fiveYearForwardChangeBps: round(fiveYearChangeBps, 1),
+      tenYearBreakeven: round(tenYearBreakeven.current, 2),
+      tenYearBreakevenChange: formatBps(tenYearChangeBps),
+      tenYearBreakevenChangeBps: round(tenYearChangeBps, 1),
+      unanchored,
     },
   };
 }
@@ -400,9 +578,17 @@ function calculateScore(signals: {
   oil: SignalResult;
   inflation: SignalResult;
   bond: SignalResult;
+  labor: SignalResult;
+  credit: SignalResult;
+  inflationExpectations: SignalResult;
 }): number {
   return Math.round(
-    signals.oil.score + signals.inflation.score + signals.bond.score,
+    signals.oil.score +
+      signals.inflation.score +
+      signals.bond.score +
+      signals.labor.score +
+      signals.credit.score +
+      signals.inflationExpectations.score,
   );
 }
 
@@ -415,6 +601,9 @@ function calculateSignals(series: DashboardSeries, nowcast?: InflationNowcast) {
     oil: calculateOilSignal(series.DCOILBRENTEU),
     inflation: calculateInflationSignal(series, nowcast),
     bond: calculateBondSignal(series),
+    labor: calculateLaborSignal(series.ICSA),
+    credit: calculateCreditSignal(series.BAMLH0A0HYM2),
+    inflationExpectations: calculateInflationExpectationsSignal(series),
   };
 }
 
@@ -422,12 +611,15 @@ const signalTitles: Record<SignalName, string> = {
   oil: "油价信号",
   inflation: "通胀信号",
   bond: "美债信号",
+  labor: "劳动力信号",
+  credit: "信用压力",
+  inflationExpectations: "通胀预期",
 };
 
-function colorLabel(color: SignalColor): string {
+function colorLabel(color: SignalColor, name?: SignalName): string {
   if (color === "green") return "已确认";
   if (color === "yellow") return "未确认";
-  if (color === "red") return "偏粘";
+  if (color === "red") return name === "inflation" ? "偏粘" : "风险";
   return "数据不足";
 }
 
@@ -439,18 +631,20 @@ function colorRank(color: SignalColor): number {
 }
 
 function signalChangeSummary(
+  name: SignalName,
   title: string,
   previousColor: SignalColor,
   currentColor: SignalColor,
 ): string {
   if (previousColor === currentColor) {
-    return `${title}维持${colorLabel(currentColor)}。`;
+    return `${title}维持${colorLabel(currentColor, name)}。`;
   }
 
   const better = colorRank(currentColor) > colorRank(previousColor);
 
-  return `${title}由${colorLabel(previousColor)}变为${colorLabel(
+  return `${title}由${colorLabel(previousColor, name)}变为${colorLabel(
     currentColor,
+    name,
   )}，${better ? "对降息健康度更友好" : "确认力度减弱"}。`;
 }
 
@@ -458,7 +652,16 @@ function buildSignalChanges(
   current: ReturnType<typeof calculateSignals>,
   previous: ReturnType<typeof calculateSignals>,
 ): SignalChange[] {
-  return (["oil", "inflation", "bond"] as SignalName[]).map((name) => {
+  return (
+    [
+      "oil",
+      "inflation",
+      "bond",
+      "labor",
+      "credit",
+      "inflationExpectations",
+    ] as SignalName[]
+  ).map((name) => {
     const previousColor = previous[name].color;
     const currentColor = current[name].color;
 
@@ -468,7 +671,12 @@ function buildSignalChanges(
       previousColor,
       currentColor,
       changed: previousColor !== currentColor,
-      summary: signalChangeSummary(signalTitles[name], previousColor, currentColor),
+      summary: signalChangeSummary(
+        name,
+        signalTitles[name],
+        previousColor,
+        currentColor,
+      ),
     };
   });
 }
@@ -501,6 +709,9 @@ function buildKeyMoves(series: DashboardSeries): MarketMove[] {
   const twoYear = latestPair(series.DGS2);
   const tenYear = latestPair(series.DGS10);
   const thirtyYear = latestPair(series.DGS30);
+  const claims = latestPair(series.ICSA);
+  const highYieldOas = latestPair(series.BAMLH0A0HYM2);
+  const fiveYearForward = latestPair(series.T5YIFR);
 
   const oilChangePct = oil
     ? ((oil.current.value - oil.previous.value) / oil.previous.value) * 100
@@ -514,6 +725,23 @@ function buildKeyMoves(series: DashboardSeries): MarketMove[] {
   const thirtyYearBps = thirtyYear
     ? (thirtyYear.current.value - thirtyYear.previous.value) * 100
     : null;
+  const claimsChange = claims ? claims.current.value - claims.previous.value : null;
+  const highYieldOasBps = highYieldOas
+    ? (highYieldOas.current.value - highYieldOas.previous.value) * 100
+    : null;
+  const fiveYearForwardBps = fiveYearForward
+    ? (fiveYearForward.current.value - fiveYearForward.previous.value) * 100
+    : null;
+  const claimsTone: MarketMove["tone"] =
+    claimsChange === null
+      ? "neutral"
+      : claimsChange > 20_000
+        ? "risk"
+        : claimsChange > 0
+          ? "supportive"
+          : claimsChange < -10_000
+            ? "risk"
+            : "neutral";
 
   return [
     marketMove(
@@ -542,6 +770,35 @@ function buildKeyMoves(series: DashboardSeries): MarketMove[] {
       thirtyYearBps,
       thirtyYearBps === null ? "N/A" : formatBps(thirtyYearBps),
       thirtyYear ? `最新 ${round(thirtyYear.current.value, 2)}%` : "暂无有效 30Y 数据",
+      true,
+    ),
+    {
+      label: "初请失业金",
+      value:
+        claimsChange === null
+          ? "N/A"
+          : `${claimsChange > 0 ? "+" : ""}${Math.round(claimsChange / 1_000)}k`,
+      detail: claims
+        ? `最新 ${formatClaims(claims.current.value)}`
+        : "暂无有效初请数据",
+      tone: claimsTone,
+    },
+    marketMove(
+      "HY OAS",
+      highYieldOasBps,
+      highYieldOasBps === null ? "N/A" : formatBps(highYieldOasBps),
+      highYieldOas
+        ? `最新 ${round(highYieldOas.current.value, 2)}%`
+        : "暂无有效信用利差数据",
+      true,
+    ),
+    marketMove(
+      "5Y5Y 通胀预期",
+      fiveYearForwardBps,
+      fiveYearForwardBps === null ? "N/A" : formatBps(fiveYearForwardBps),
+      fiveYearForward
+        ? `最新 ${round(fiveYearForward.current.value, 2)}%`
+        : "暂无有效通胀预期数据",
       true,
     ),
   ];
@@ -638,6 +895,37 @@ function buildKeyMetrics(
           ? "green"
           : "yellow",
     ),
+    moveFromSignalColor(
+      "初请4周均值变化",
+      typeof signals.labor.details.fourWeekChangePct === "number"
+        ? `${signals.labor.details.fourWeekChangePct}%`
+        : "数据不足",
+      typeof signals.labor.details.recent4wAverageLabel === "string"
+        ? `4周均值 ${signals.labor.details.recent4wAverageLabel}`
+        : "需要至少 8 周初请数据",
+      signals.labor.color,
+    ),
+    moveFromSignalColor(
+      "HY OAS 5日变化",
+      typeof signals.credit.details.highYieldOasChange === "string"
+        ? signals.credit.details.highYieldOasChange
+        : "数据不足",
+      typeof signals.credit.details.highYieldOas === "number"
+        ? `当前 ${signals.credit.details.highYieldOas}%`
+        : "需要至少 6 个有效交易日",
+      signals.credit.color,
+    ),
+    moveFromSignalColor(
+      "5Y5Y通胀预期",
+      typeof signals.inflationExpectations.details.fiveYearForward === "number"
+        ? `${signals.inflationExpectations.details.fiveYearForward}%`
+        : "数据不足",
+      typeof signals.inflationExpectations.details.fiveYearForwardChange ===
+        "string"
+        ? `5日 ${signals.inflationExpectations.details.fiveYearForwardChange}`
+        : "需要至少 6 个有效交易日",
+      signals.inflationExpectations.color,
+    ),
   ];
 }
 
@@ -672,6 +960,7 @@ function buildWhatChangedToday(
 function impactBiasClass(radar: {
   score: number;
   politicalCutRisk: boolean;
+  healthStressRisk: boolean;
   signals: ReturnType<typeof calculateSignals>;
 }): {
   riskBeta: AssetBias;
@@ -683,6 +972,15 @@ function impactBiasClass(radar: {
     return {
       riskBeta: "volatile",
       duration: "bearish",
+      gold: "bullish",
+      btc: "volatile",
+    };
+  }
+
+  if (radar.healthStressRisk) {
+    return {
+      riskBeta: "bearish",
+      duration: radar.signals.bond.color === "green" ? "bullish" : "neutral",
       gold: "bullish",
       btc: "volatile",
     };
@@ -726,6 +1024,7 @@ function impactBiasClass(radar: {
 function buildAssetImpact(radar: {
   score: number;
   politicalCutRisk: boolean;
+  healthStressRisk: boolean;
   signals: ReturnType<typeof calculateSignals>;
 }): AssetImpact[] {
   const bias = impactBiasClass(radar);
@@ -785,10 +1084,15 @@ function buildAssetImpact(radar: {
 function assetImpactSummary(radar: {
   score: number;
   politicalCutRisk: boolean;
+  healthStressRisk: boolean;
   signals: ReturnType<typeof calculateSignals>;
 }): string {
   if (radar.politicalCutRisk) {
     return "短端押注降息但长端不信，恒科、纳指成长和 BTC 可能高波动，TLT 仍需谨慎。";
+  }
+
+  if (radar.healthStressRisk) {
+    return "就业或信用压力升温，长债和黄金更占优，恒科、纳指成长与 BTC 需要防波动。";
   }
 
   if (radar.score >= 80) {
@@ -806,8 +1110,13 @@ function assetImpactSummary(radar: {
   return "宏观组合暂不支持健康降息，高弹性资产和长久期资产都需要防守。";
 }
 
-function statusForScore(score: number, politicalCutRisk: boolean): RadarStatus {
+function statusForScore(
+  score: number,
+  politicalCutRisk: boolean,
+  healthStressRisk: boolean,
+): RadarStatus {
   if (politicalCutRisk) return "Political Cut Risk";
+  if (healthStressRisk && score >= 60) return "Mixed / Wait and See";
   if (score >= 80) return "Healthy Rate Cut Expectation";
   if (score >= 60) return "Rate Cut Expectation Warming";
   if (score >= 40) return "Mixed / Wait and See";
@@ -815,7 +1124,11 @@ function statusForScore(score: number, politicalCutRisk: boolean): RadarStatus {
   return "Rate Cut Expectation Failed";
 }
 
-function statusSummary(status: RadarStatus): string {
+function statusSummary(status: RadarStatus, healthStressRisk: boolean): string {
+  if (healthStressRisk && status === "Mixed / Wait and See") {
+    return "降息预期升温，但就业或信用压力也在升温，当前更像需要防守的压力降息。";
+  }
+
   const summaries: Record<RadarStatus, string> = {
     "Healthy Rate Cut Expectation":
       "油价、底层通胀和美债同时配合，健康降息预期正在形成。",
@@ -848,30 +1161,48 @@ export function calculateRateCutRadar(
     DGS10: dropLatest(series.DGS10),
     DGS30: dropLatest(series.DGS30),
     T10Y2Y: dropLatest(series.T10Y2Y),
+    T10YIE: dropLatest(series.T10YIE),
+    T5YIFR: dropLatest(series.T5YIFR),
+    BAMLH0A0HYM2: dropLatest(series.BAMLH0A0HYM2),
+    ICSA: dropLatest(series.ICSA),
   };
   const previousSignals = calculateSignals(previousDailySeries, inflationNowcast);
   const previousScore = calculateScore(previousSignals);
 
   const politicalCutRisk = signals.bond.details.politicalCutRisk === true;
-  const status = statusForScore(score, politicalCutRisk);
+  const healthStressRisk =
+    signals.labor.details.recessionStress === true ||
+    signals.credit.details.creditStress === true;
+  const status = statusForScore(score, politicalCutRisk, healthStressRisk);
   const signalChanges = buildSignalChanges(signals, previousSignals);
   const keyMoves = buildKeyMoves(series);
   const keyMetrics = buildKeyMetrics(series, signals);
-  const assetImpact = buildAssetImpact({ score, politicalCutRisk, signals });
+  const assetImpact = buildAssetImpact({
+    score,
+    politicalCutRisk,
+    healthStressRisk,
+    signals,
+  });
 
   return {
     score,
     previousScore,
     scoreDelta: score - previousScore,
     status,
-    statusSummary: statusSummary(status),
+    statusSummary: statusSummary(status, healthStressRisk),
     signals,
     signalChanges,
     whatChanged: buildWhatChangedToday(score, previousScore, signalChanges, keyMoves),
     keyMetrics,
     assetImpact,
-    assetImpactSummary: assetImpactSummary({ score, politicalCutRisk, signals }),
+    assetImpactSummary: assetImpactSummary({
+      score,
+      politicalCutRisk,
+      healthStressRisk,
+      signals,
+    }),
     politicalCutRisk,
+    healthStressRisk,
   };
 }
 
