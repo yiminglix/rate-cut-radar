@@ -90,8 +90,11 @@ function assetPhrase(radar: RateCutRadar): string {
   if (radar.healthStressRisk) {
     return "资产含义上，长债和黄金更像防守受益，恒生科技、纳指成长和 BTC 需要防止风险偏好回落。";
   }
-  if (radar.score >= 80) {
+  if (radar.status === "Healthy Rate Cut Expectation") {
     return "这对恒生科技、纳指成长、TLT 和 BTC 都偏友好，尤其利好久期资产与高弹性风险资产。";
+  }
+  if (radar.score >= 80) {
+    return "资产含义上，高分区对成长和久期资产偏友好，但还需要通胀或就业进一步确认，不能当成完全健康顺风。";
   }
   if (radar.score >= 60) {
     return "恒生科技和纳指成长可获得估值修复窗口，TLT 偏多但需控制节奏，BTC 更依赖流动性预期延续。";
@@ -133,15 +136,15 @@ export function generateExecutiveSummary(radar: RateCutRadar): string {
     return "降息升温，但有压力降息风险。";
   }
 
-  if (radar.score >= 80) {
+  if (radar.status === "Healthy Rate Cut Expectation") {
     return "降息预期健康，久期与成长占优。";
   }
 
-  if (radar.score >= 60) {
-    return "降息预期升温，但仍需长端确认。";
+  if (radar.status === "Rate Cut Expectation Warming") {
+    return "降息预期升温，但还未完全健康。";
   }
 
-  if (radar.score >= 40) {
+  if (radar.status === "Mixed / Wait and See") {
     return "信号分裂，先观察不重仓。";
   }
 

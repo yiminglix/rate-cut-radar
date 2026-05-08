@@ -2,7 +2,7 @@
 
 Rate Cut Radar / 降息雷达 is a mobile-first macro decision dashboard for tracking whether a healthy rate cut expectation is forming. It links oil pressure, underlying inflation, Treasury-market confirmation, labor cooling, credit stress, and market inflation expectations into a 0-100 score, then translates the setup into asset implications for Hang Seng Tech, NASDAQ growth, TLT, gold, and BTC.
 
-## V1.7 Decision Layer
+## V1.7.1 Decision Layer
 
 The home screen prioritizes daily decision-making in Chinese:
 
@@ -132,13 +132,14 @@ Total score:
 
 Status:
 
-- `>=80`: Healthy Rate Cut Expectation
+- `>=80` plus all healthy-status gates pass: Healthy Rate Cut Expectation
 - `60-79`: Rate Cut Expectation Warming
 - `40-59`: Mixed / Wait and See
 - `20-39`: Rate Cut Expectation Weak
 - `<20`: Rate Cut Expectation Failed
 - Special case: if 2Y yields fall while 10Y or 30Y yields rise clearly, the status becomes Political Cut Risk.
 - Health check case: if labor or credit stress turns red, the dashboard will not label the regime as fully healthy even when rate-cut pricing is warming.
+- V1.7.1 healthy-status gates: bond must be green; credit, inflation expectations, and oil must not be red or stale; and at least one of inflation or labor must be green.
 
 通胀逻辑:
 
