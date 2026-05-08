@@ -284,6 +284,8 @@ function trimmedMeanSixMonthAnnualized(points: SeriesPoint[]): {
 }
 
 function calculateInflationSignal(series: DashboardSeries): SignalResult {
+  const coreLatest = latest(series.PCEPILFE);
+  const trimmedLatest = latest(series.PCETRIM1M158SFRBDAL);
   const coreYoy = corePceYoy(series.PCEPILFE);
   const coreThreeMonth = corePceThreeMonthAnnualized(series.PCEPILFE);
   const trimmedSixMonth = trimmedMeanSixMonthAnnualized(
@@ -302,6 +304,8 @@ function calculateInflationSignal(series: DashboardSeries): SignalResult {
       details: {
         corePceDataPoints: validPoints(series.PCEPILFE).length,
         trimmedMeanDataPoints: validPoints(series.PCETRIM1M158SFRBDAL).length,
+        corePceLatestDate: coreLatest?.date ?? "数据不足",
+        trimmedMeanLatestDate: trimmedLatest?.date ?? "数据不足",
         dataStatus: "数据不足",
       },
     };
@@ -341,6 +345,8 @@ function calculateInflationSignal(series: DashboardSeries): SignalResult {
       previousCorePceThreeMonthAnnualized: round(coreThreeMonth.previous, 2),
       trimmedMeanSixMonthAnnualized: round(trimmedSixMonth.latest, 2),
       previousTrimmedMeanSixMonthAnnualized: round(trimmedSixMonth.previous, 2),
+      corePceLatestDate: coreLatest?.date ?? "数据不足",
+      trimmedMeanLatestDate: trimmedLatest?.date ?? "数据不足",
       coreYoySlowing,
       coreThreeMonthSlowing,
       trimmedSixMonthSlowing,
@@ -517,6 +523,8 @@ function buildKeyMetrics(
   const twoYear = changeOverFiveSessions(series.DGS2);
   const tenYear = changeOverFiveSessions(series.DGS10);
   const thirtyYear = changeOverFiveSessions(series.DGS30);
+  const coreLatestDate = signals.inflation.details.corePceLatestDate;
+  const trimmedLatestDate = signals.inflation.details.trimmedMeanLatestDate;
 
   return [
     moveFromSignalColor(
@@ -557,7 +565,9 @@ function buildKeyMetrics(
         : `${signals.inflation.details.corePceYoy}%`,
       signals.inflation.details.previousCorePceYoy === undefined
         ? "需要至少 14 个月 Core PCE"
-        : `前值 ${signals.inflation.details.previousCorePceYoy}%`,
+        : `最新官方月份 ${coreLatestDate ?? "未知"}，前值 ${
+            signals.inflation.details.previousCorePceYoy
+          }%`,
       signals.inflation.color,
     ),
     moveFromSignalColor(
@@ -567,7 +577,9 @@ function buildKeyMetrics(
         : `${signals.inflation.details.trimmedMeanSixMonthAnnualized}%`,
       signals.inflation.details.previousTrimmedMeanSixMonthAnnualized === undefined
         ? "需要至少 7 个月 Trimmed Mean PCE"
-        : `前值 ${signals.inflation.details.previousTrimmedMeanSixMonthAnnualized}%`,
+        : `最新官方月份 ${trimmedLatestDate ?? "未知"}，前值 ${
+            signals.inflation.details.previousTrimmedMeanSixMonthAnnualized
+          }%`,
       signals.inflation.color,
     ),
   ];

@@ -108,6 +108,19 @@ function percentDetail(value: unknown): string {
   return typeof value === "number" ? `${value}%` : "数据不足";
 }
 
+function monthDetail(value: unknown): string {
+  if (typeof value !== "string") return "数据不足";
+
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "long",
+    timeZone: "Asia/Shanghai",
+  }).format(date);
+}
+
 function statusLabel(status: RadarStatus): string {
   const labels: Record<RadarStatus, string> = {
     "Healthy Rate Cut Expectation": "健康降息预期",
@@ -305,21 +318,33 @@ function SignalDetails({ signal }: { signal: SignalResult }) {
     );
   }
 
+  const coreMonth = monthDetail(signal.details.corePceLatestDate);
+  const trimmedMonth = monthDetail(signal.details.trimmedMeanLatestDate);
+  const monthText =
+    coreMonth === trimmedMonth
+      ? `当前最新官方月份为 ${coreMonth}。`
+      : `Core PCE 最新为 ${coreMonth}，Trimmed Mean PCE 最新为 ${trimmedMonth}。`;
+
   return (
-    <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
-      <DetailItem
-        label="Core YoY"
-        value={percentDetail(signal.details.corePceYoy)}
-      />
-      <DetailItem
-        label="Core 3M"
-        value={percentDetail(signal.details.corePceThreeMonthAnnualized)}
-      />
-      <DetailItem
-        label="Trimmed 6M"
-        value={percentDetail(signal.details.trimmedMeanSixMonthAnnualized)}
-      />
-    </dl>
+    <>
+      <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
+        <DetailItem
+          label="Core YoY"
+          value={percentDetail(signal.details.corePceYoy)}
+        />
+        <DetailItem
+          label="Core 3M"
+          value={percentDetail(signal.details.corePceThreeMonthAnnualized)}
+        />
+        <DetailItem
+          label="Trimmed 6M"
+          value={percentDetail(signal.details.trimmedMeanSixMonthAnnualized)}
+        />
+      </dl>
+      <p className="mt-3 text-xs leading-5 text-zinc-500">
+        PCE 是月频官方数据，通常滞后发布；{monthText}
+      </p>
+    </>
   );
 }
 
@@ -503,7 +528,7 @@ function Methodology() {
           油价信号使用 Brent 当前价格相对近 20 个有效交易日高点的回撤，并结合 20 日均线判断能源通胀压力是否缓和。FRED Brent 现货若明显滞后，会用更接近交易盘面的 Brent 市场报价补最新点。
         </p>
         <p>
-          通胀信号不使用 Core PCE 或 Trimmed Mean PCE 的指数水平判断方向，而是使用 Core PCE YoY、Core PCE 3M 年化和 Trimmed Mean PCE 6M 年化判断底层通胀是否自然降温。
+          通胀信号不使用 Core PCE 或 Trimmed Mean PCE 的指数水平判断方向，而是使用 Core PCE YoY、Core PCE 3M 年化和 Trimmed Mean PCE 6M 年化判断底层通胀是否自然降温。PCE 是月频官方数据，页面会显示当前使用的最新官方月份。
         </p>
         <p>
           美债信号比较 2Y、10Y、30Y 最近 5 个有效交易日变化。若 2Y 下行但 10Y/30Y 明显上行，状态会切换为政治化降息风险。
