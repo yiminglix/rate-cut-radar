@@ -1085,6 +1085,7 @@ function assetImpactSummary(radar: {
   score: number;
   politicalCutRisk: boolean;
   healthStressRisk: boolean;
+  healthyStatusReady: boolean;
   signals: ReturnType<typeof calculateSignals>;
 }): string {
   if (radar.politicalCutRisk) {
@@ -1093,6 +1094,10 @@ function assetImpactSummary(radar: {
 
   if (radar.healthStressRisk) {
     return "就业或信用压力升温，长债和黄金更占优，恒科、纳指成长与 BTC 需要防波动。";
+  }
+
+  if (radar.score >= 80 && !radar.healthyStatusReady) {
+    return "降息预期已进入高分区，但通胀或就业确认不足，成长资产偏友好但还不是完全健康顺风。";
   }
 
   if (radar.score >= 80) {
@@ -1110,28 +1115,73 @@ function assetImpactSummary(radar: {
   return "宏观组合暂不支持健康降息，高弹性资产和长久期资产都需要防守。";
 }
 
+function healthyStatusGateFailures(
+  signals: ReturnType<typeof calculateSignals>,
+): string[] {
+  const failures: string[] = [];
+
+  if (signals.bond.color !== "green") {
+    failures.push("长端美债尚未确认");
+  }
+
+  if (signals.credit.color === "red" || signals.credit.color === "stale") {
+    failures.push("信用压力尚未排除");
+  }
+
+  if (
+    signals.inflationExpectations.color === "red" ||
+    signals.inflationExpectations.color === "stale"
+  ) {
+    failures.push("通胀预期尚未稳定");
+  }
+
+  if (signals.oil.color === "red" || signals.oil.color === "stale") {
+    failures.push("油价仍有通胀压力");
+  }
+
+  if (signals.inflation.color !== "green" && signals.labor.color !== "green") {
+    failures.push("通胀或就业至少需要一项确认");
+  }
+
+  return failures;
+}
+
 function statusForScore(
   score: number,
   politicalCutRisk: boolean,
   healthStressRisk: boolean,
+  healthyGateFailures: string[],
 ): RadarStatus {
   if (politicalCutRisk) return "Political Cut Risk";
   if (healthStressRisk && score >= 60) return "Mixed / Wait and See";
-  if (score >= 80) return "Healthy Rate Cut Expectation";
+  if (score >= 80 && healthyGateFailures.length === 0) {
+    return "Healthy Rate Cut Expectation";
+  }
   if (score >= 60) return "Rate Cut Expectation Warming";
   if (score >= 40) return "Mixed / Wait and See";
   if (score >= 20) return "Rate Cut Expectation Weak";
   return "Rate Cut Expectation Failed";
 }
 
-function statusSummary(status: RadarStatus, healthStressRisk: boolean): string {
+function statusSummary(
+  status: RadarStatus,
+  healthStressRisk: boolean,
+  healthyGateFailures: string[],
+): string {
   if (healthStressRisk && status === "Mixed / Wait and See") {
     return "降息预期升温，但就业或信用压力也在升温，当前更像需要防守的压力降息。";
   }
 
+  if (
+    status === "Rate Cut Expectation Warming" &&
+    healthyGateFailures.length > 0
+  ) {
+    return `总分已经走强，但${healthyGateFailures.join("、")}，先标记为降息预期升温，而不是健康降息。`;
+  }
+
   const summaries: Record<RadarStatus, string> = {
     "Healthy Rate Cut Expectation":
-      "油价、底层通胀和美债同时配合，健康降息预期正在形成。",
+      "油价、底层通胀、美债与健康校验同时配合，健康降息预期正在形成。",
     "Rate Cut Expectation Warming":
       "降息预期正在升温，但仍需要更多通胀或长端利率确认。",
     "Mixed / Wait and See":
@@ -1173,7 +1223,14 @@ export function calculateRateCutRadar(
   const healthStressRisk =
     signals.labor.details.recessionStress === true ||
     signals.credit.details.creditStress === true;
-  const status = statusForScore(score, politicalCutRisk, healthStressRisk);
+  const healthyGateFailures = healthyStatusGateFailures(signals);
+  const healthyStatusReady = healthyGateFailures.length === 0;
+  const status = statusForScore(
+    score,
+    politicalCutRisk,
+    healthStressRisk,
+    healthyGateFailures,
+  );
   const signalChanges = buildSignalChanges(signals, previousSignals);
   const keyMoves = buildKeyMoves(series);
   const keyMetrics = buildKeyMetrics(series, signals);
@@ -1189,7 +1246,7 @@ export function calculateRateCutRadar(
     previousScore,
     scoreDelta: score - previousScore,
     status,
-    statusSummary: statusSummary(status, healthStressRisk),
+    statusSummary: statusSummary(status, healthStressRisk, healthyGateFailures),
     signals,
     signalChanges,
     whatChanged: buildWhatChangedToday(score, previousScore, signalChanges, keyMoves),
@@ -1199,6 +1256,7 @@ export function calculateRateCutRadar(
       score,
       politicalCutRisk,
       healthStressRisk,
+      healthyStatusReady,
       signals,
     }),
     politicalCutRisk,

@@ -215,7 +215,7 @@ function ScoreCard({ radar }: { radar: RateCutRadar }) {
           </p>
         </div>
         <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-white/10">
-          V1.7
+          V1.7.1
         </span>
       </div>
       <div className="mt-3 flex items-center justify-center">
