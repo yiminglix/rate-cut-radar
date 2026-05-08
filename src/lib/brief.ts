@@ -63,9 +63,32 @@ function bondPhrase(radar: RateCutRadar): string {
   return "长端收益率上行削弱了降息交易质量，市场对未来通胀、财政或期限溢价仍有顾虑。";
 }
 
+function healthCheckPhrase(radar: RateCutRadar): string {
+  const laborColor = radar.signals.labor.color;
+  const creditColor = radar.signals.credit.color;
+  const expectationsColor = radar.signals.inflationExpectations.color;
+
+  if (radar.healthStressRisk) {
+    return "健康校验提示，就业或信用压力正在升温，降息叙事需要防止从软着陆切换为压力降息。";
+  }
+
+  if (
+    laborColor === "green" &&
+    creditColor === "green" &&
+    expectationsColor === "green"
+  ) {
+    return "劳动力温和降温，信用利差稳定，通胀预期被锚住，健康校验也在配合。";
+  }
+
+  return "健康校验仍需跟踪：就业、信用利差和通胀预期还没有同时给出强确认。";
+}
+
 function assetPhrase(radar: RateCutRadar): string {
   if (radar.politicalCutRisk) {
     return "资产含义上，恒生科技、纳指成长和 BTC 可能先受流动性想象推动，但真正的风险偏好修复需要长端美债企稳；TLT 不宜追高，黄金对冲价值上升。";
+  }
+  if (radar.healthStressRisk) {
+    return "资产含义上，长债和黄金更像防守受益，恒生科技、纳指成长和 BTC 需要防止风险偏好回落。";
   }
   if (radar.score >= 80) {
     return "这对恒生科技、纳指成长、TLT 和 BTC 都偏友好，尤其利好久期资产与高弹性风险资产。";
@@ -98,12 +121,16 @@ export function generateDailyBrief(
     radar.signals.oil.color,
   )}${inflationPhrase(radar.signals.inflation.color)}${bondPhrase(
     radar,
-  )}${assetPhrase(radar)}`;
+  )}${healthCheckPhrase(radar)}${assetPhrase(radar)}`;
 }
 
 export function generateExecutiveSummary(radar: RateCutRadar): string {
   if (radar.politicalCutRisk) {
     return "短端降息，长端不信，警惕高波动。";
+  }
+
+  if (radar.healthStressRisk) {
+    return "降息升温，但有压力降息风险。";
   }
 
   if (radar.score >= 80) {
