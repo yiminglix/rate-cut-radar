@@ -2,6 +2,7 @@ import type {
   AssetBias,
   AssetImpact,
   DashboardSeries,
+  InflationNowcast,
   MarketMove,
   RateCutRadar,
   RadarStatus,
@@ -283,7 +284,10 @@ function trimmedMeanSixMonthAnnualized(points: SeriesPoint[]): {
   };
 }
 
-function calculateInflationSignal(series: DashboardSeries): SignalResult {
+function calculateInflationSignal(
+  series: DashboardSeries,
+  nowcast?: InflationNowcast,
+): SignalResult {
   const coreLatest = latest(series.PCEPILFE);
   const trimmedLatest = latest(series.PCETRIM1M158SFRBDAL);
   const coreYoy = corePceYoy(series.PCEPILFE);
@@ -319,17 +323,43 @@ function calculateInflationSignal(series: DashboardSeries): SignalResult {
     Number(coreYoySlowing) +
     Number(coreThreeMonthSlowing) +
     Number(trimmedSixMonthSlowing);
+  const nowcastMom = nowcast?.monthOverMonth[0];
+  const previousNowcastMom = nowcast?.monthOverMonth[1];
+  const nowcastYoy = nowcast?.yearOverYear[0];
+  const previousNowcastYoy = nowcast?.yearOverYear[1];
+  const nowcastCorePceMomAnnualized = nowcastMom
+    ? (Math.pow(1 + nowcastMom.corePce / 100, 12) - 1) * 100
+    : null;
+  const nowcastCorePceMomSlowing =
+    nowcastMom && previousNowcastMom
+      ? nowcastMom.corePce <= previousNowcastMom.corePce
+      : null;
+  const nowcastCorePceYoySlowing =
+    nowcastYoy && previousNowcastYoy
+      ? nowcastYoy.corePce <= previousNowcastYoy.corePce
+      : null;
+  const nowcastSticky =
+    nowcastCorePceMomSlowing === false && nowcastCorePceYoySlowing === false;
 
   let color: SignalColor = "red";
   if (slowingCount === 3) color = "green";
   if (slowingCount >= 1 && slowingCount < 3) color = "yellow";
+  if (color === "green" && nowcastSticky) color = "yellow";
 
-  const summary =
+  const nowcastSummary = nowcastMom
+    ? `Cleveland Fed nowcast 已补到 ${nowcast.latestMonth}，Core PCE MoM 约 ${nowcastMom.corePce}%，折年约 ${
+        nowcastCorePceMomAnnualized === null
+          ? "N/A"
+          : `${round(nowcastCorePceMomAnnualized, 2)}%`
+      }。`
+    : "";
+  const baseSummary =
     color === "green"
       ? "Core PCE YoY、Core PCE 3M 年化和 Trimmed Mean PCE 6M 年化同步放缓，底层通胀正在自然降温。"
       : color === "yellow"
         ? "底层通胀只有部分指标放缓，降息空间在改善，但通胀黏性还没有完全解除。"
         : "Core PCE 和 Trimmed Mean PCE 的关键动能未放缓，通胀端暂不支持健康降息叙事。";
+  const summary = `${baseSummary}${nowcastSummary ? ` ${nowcastSummary}` : ""}`;
 
   return {
     name: "inflation",
@@ -347,6 +377,18 @@ function calculateInflationSignal(series: DashboardSeries): SignalResult {
       previousTrimmedMeanSixMonthAnnualized: round(trimmedSixMonth.previous, 2),
       corePceLatestDate: coreLatest?.date ?? "数据不足",
       trimmedMeanLatestDate: trimmedLatest?.date ?? "数据不足",
+      nowcastSource: nowcast?.sourceName ?? "未接入",
+      nowcastUpdated: nowcast?.updated ?? "数据不足",
+      nowcastLatestMonth: nowcast?.latestMonth ?? "数据不足",
+      nowcastCorePceMom: nowcastMom ? round(nowcastMom.corePce, 2) : "数据不足",
+      nowcastCorePceYoy: nowcastYoy ? round(nowcastYoy.corePce, 2) : "数据不足",
+      nowcastCorePceMomAnnualized:
+        nowcastCorePceMomAnnualized === null
+          ? "数据不足"
+          : round(nowcastCorePceMomAnnualized, 2),
+      nowcastCorePceMomSlowing: nowcastCorePceMomSlowing ?? "数据不足",
+      nowcastCorePceYoySlowing: nowcastCorePceYoySlowing ?? "数据不足",
+      nowcastSticky,
       coreYoySlowing,
       coreThreeMonthSlowing,
       trimmedSixMonthSlowing,
@@ -368,10 +410,10 @@ function dropLatest(points: SeriesPoint[]): SeriesPoint[] {
   return points.slice(0, -1);
 }
 
-function calculateSignals(series: DashboardSeries) {
+function calculateSignals(series: DashboardSeries, nowcast?: InflationNowcast) {
   return {
     oil: calculateOilSignal(series.DCOILBRENTEU),
-    inflation: calculateInflationSignal(series),
+    inflation: calculateInflationSignal(series, nowcast),
     bond: calculateBondSignal(series),
   };
 }
@@ -582,6 +624,20 @@ function buildKeyMetrics(
           }%`,
       signals.inflation.color,
     ),
+    moveFromSignalColor(
+      "Core PCE nowcast",
+      typeof signals.inflation.details.nowcastCorePceMomAnnualized === "number"
+        ? `${signals.inflation.details.nowcastCorePceMomAnnualized}%`
+        : "数据不足",
+      typeof signals.inflation.details.nowcastCorePceYoy === "number"
+        ? `${signals.inflation.details.nowcastLatestMonth}，YoY ${signals.inflation.details.nowcastCorePceYoy}%`
+        : "等待 Cleveland Fed nowcast",
+      signals.inflation.details.nowcastSticky === true
+        ? "red"
+        : signals.inflation.details.nowcastCorePceMomSlowing === true
+          ? "green"
+          : "yellow",
+    ),
   ];
 }
 
@@ -778,8 +834,11 @@ function statusSummary(status: RadarStatus): string {
   return summaries[status];
 }
 
-export function calculateRateCutRadar(series: DashboardSeries): RateCutRadar {
-  const signals = calculateSignals(series);
+export function calculateRateCutRadar(
+  series: DashboardSeries,
+  inflationNowcast?: InflationNowcast,
+): RateCutRadar {
+  const signals = calculateSignals(series, inflationNowcast);
   const score = calculateScore(signals);
 
   const previousDailySeries: DashboardSeries = {
@@ -790,7 +849,7 @@ export function calculateRateCutRadar(series: DashboardSeries): RateCutRadar {
     DGS30: dropLatest(series.DGS30),
     T10Y2Y: dropLatest(series.T10Y2Y),
   };
-  const previousSignals = calculateSignals(previousDailySeries);
+  const previousSignals = calculateSignals(previousDailySeries, inflationNowcast);
   const previousScore = calculateScore(previousSignals);
 
   const politicalCutRisk = signals.bond.details.politicalCutRisk === true;

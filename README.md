@@ -23,6 +23,7 @@ The home screen prioritizes daily decision-making in Chinese:
 - Recharts
 - FRED API as the preferred data source
 - Brent market quote supplement when FRED's Brent spot series is stale
+- Cleveland Fed Inflation Nowcasting supplement when official PCE is stale
 - Built-in mock data when no FRED API key is configured
 
 ## FRED Series
@@ -38,6 +39,8 @@ The first version reads these FRED series:
 - `DCOILBRENTEU`: Brent crude oil price
 
 Brent is still seeded from FRED history, but the latest point can be supplemented from Oilprice/Barcharts because the FRED Brent spot series may lag fast-moving futures markets by several days.
+
+PCE remains anchored to official FRED/BEA history, but the dashboard can supplement the latest unreleased month with Cleveland Fed Inflation Nowcasting so inflation analysis does not stop at the last official monthly release.
 
 ## Environment
 
@@ -65,6 +68,7 @@ Optional variables:
 - `FRED_DAILY_STALE_DAYS`: defaults to `3`
 - `FRED_MONTHLY_STALE_DAYS`: defaults to `75`
 - `BRENT_MARKET_DATA_URL`: defaults to Oilprice/Barcharts' public latest-prices JSON and is used only to supplement Brent when the FRED Brent spot series is stale
+- `INFLATION_NOWCAST_URL`: defaults to Cleveland Fed Inflation Nowcasting and supplements official monthly PCE data
 
 ## Get a FRED API Key
 
@@ -132,6 +136,7 @@ V1.6 通胀逻辑:
 - Core PCE 3M annualized checks short-term underlying inflation momentum.
 - Trimmed Mean PCE 6M annualized compounds the latest six monthly annualized trimmed-mean readings.
 - PCE inputs are official monthly data, so the dashboard displays the latest official observation month instead of implying daily freshness.
+- If official PCE is behind the market date, the dashboard also displays Cleveland Fed Core PCE nowcast for the latest unreleased month and uses it as a timeliness overlay.
 - If there is not enough PCE history, the app shows 数据不足 instead of judging inflation from index levels.
 
 ## Code Structure

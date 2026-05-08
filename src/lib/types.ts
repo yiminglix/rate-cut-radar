@@ -22,7 +22,34 @@ export type SeriesMeta = {
 
 export type DashboardSeries = Record<FredSeriesId, SeriesPoint[]>;
 
-export type DataSource = "fred" | "fred+market" | "partial" | "mock";
+export type DataSource =
+  | "fred"
+  | "fred+market"
+  | "fred+nowcast"
+  | "fred+market+nowcast"
+  | "partial"
+  | "partial+nowcast"
+  | "mock";
+
+export type InflationNowcastRow = {
+  month: string;
+  cpi: number;
+  coreCpi: number;
+  pce: number;
+  corePce: number;
+  updated: string;
+};
+
+export type InflationNowcast = {
+  source: "cleveland-fed";
+  sourceName: string;
+  latestMonth: string;
+  previousMonth?: string;
+  updated: string;
+  monthOverMonth: InflationNowcastRow[];
+  yearOverYear: InflationNowcastRow[];
+  quarterlyAnnualized?: InflationNowcastRow;
+};
 
 export type DashboardData = {
   series: DashboardSeries;
@@ -30,6 +57,7 @@ export type DashboardData = {
   updatedAt: string;
   warning?: string;
   notices?: string[];
+  inflationNowcast?: InflationNowcast;
 };
 
 export type SignalColor = "green" | "yellow" | "red" | "stale";
