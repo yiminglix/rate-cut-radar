@@ -131,6 +131,7 @@ V1.6 通胀逻辑:
 - Core PCE YoY checks whether the year-over-year inflation rate is slowing.
 - Core PCE 3M annualized checks short-term underlying inflation momentum.
 - Trimmed Mean PCE 6M annualized compounds the latest six monthly annualized trimmed-mean readings.
+- PCE inputs are official monthly data, so the dashboard displays the latest official observation month instead of implying daily freshness.
 - If there is not enough PCE history, the app shows 数据不足 instead of judging inflation from index levels.
 
 ## Code Structure
