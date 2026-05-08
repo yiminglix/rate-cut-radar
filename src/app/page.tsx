@@ -324,6 +324,11 @@ function SignalDetails({ signal }: { signal: SignalResult }) {
     coreMonth === trimmedMonth
       ? `当前最新官方月份为 ${coreMonth}。`
       : `Core PCE 最新为 ${coreMonth}，Trimmed Mean PCE 最新为 ${trimmedMonth}。`;
+  const nowcastText =
+    typeof signal.details.nowcastCorePceMom === "number" &&
+    typeof signal.details.nowcastCorePceYoy === "number"
+      ? `Cleveland Fed nowcast 补到 ${signal.details.nowcastLatestMonth}：Core PCE MoM ${signal.details.nowcastCorePceMom}%，YoY ${signal.details.nowcastCorePceYoy}%，更新 ${signal.details.nowcastUpdated}。`
+      : "Cleveland Fed nowcast 暂未接入，当前仅使用官方月频 PCE。";
 
   return (
     <>
@@ -344,6 +349,7 @@ function SignalDetails({ signal }: { signal: SignalResult }) {
       <p className="mt-3 text-xs leading-5 text-zinc-500">
         PCE 是月频官方数据，通常滞后发布；{monthText}
       </p>
+      <p className="mt-1 text-xs leading-5 text-zinc-500">{nowcastText}</p>
     </>
   );
 }
@@ -542,7 +548,10 @@ function sourceLabel(source: DataSource): string {
   const labels: Record<DataSource, string> = {
     fred: "FRED",
     "fred+market": "FRED + 市场报价",
+    "fred+nowcast": "FRED + 通胀 Nowcast",
+    "fred+market+nowcast": "FRED + 市场报价 + 通胀 Nowcast",
     partial: "部分 FRED + 模拟数据",
+    "partial+nowcast": "部分 FRED + 模拟数据 + 通胀 Nowcast",
     mock: "模拟数据",
   };
 
@@ -574,7 +583,7 @@ function DataNotice({
 
 export default async function Home() {
   const data = await getDashboardData();
-  const radar = calculateRateCutRadar(data.series);
+  const radar = calculateRateCutRadar(data.series, data.inflationNowcast);
   const brief = generateDailyBrief(radar, data.source);
   const executiveSummary = generateExecutiveSummary(radar);
 

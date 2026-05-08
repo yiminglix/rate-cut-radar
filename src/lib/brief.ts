@@ -83,7 +83,12 @@ export function generateDailyBrief(
   const sourcePhrases: Record<DataSource, string> = {
     fred: "基于 FRED 最新可用数据",
     "fred+market": "基于 FRED 数据，并用市场报价补充 Brent 最新点",
+    "fred+nowcast": "基于 FRED 数据，并用 Cleveland Fed nowcast 补充通胀",
+    "fred+market+nowcast":
+      "基于 FRED 数据，并用市场报价补充 Brent、用 Cleveland Fed nowcast 补充通胀",
     partial: "基于部分 FRED 数据，失败指标使用模拟数据兜底",
+    "partial+nowcast":
+      "基于部分 FRED 数据，失败指标使用模拟数据兜底，并用 Cleveland Fed nowcast 补充通胀",
     mock: "基于本地 mock data 预览",
   };
 

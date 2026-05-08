@@ -3,6 +3,8 @@ import type {
   DashboardData,
   DashboardSeries,
   FredSeriesId,
+  InflationNowcast,
+  InflationNowcastRow,
   SeriesPoint,
 } from "./types";
 
@@ -30,6 +32,8 @@ const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const BRENT_OILPRICE_BLEND_ID = "46";
 const BRENT_MARKET_DATA_URL =
   "https://s3.amazonaws.com/oilprice.com/widgets/oilprices/all/last.json";
+const CLEVELAND_FED_NOWCAST_URL =
+  "https://www.clevelandfed.org/indicators-and-data/inflation-nowcasting";
 
 class NonRetryableFredError extends Error {}
 
@@ -77,6 +81,10 @@ function getMonthlyStaleDays(): number {
 
 function getBrentMarketDataUrl(): string {
   return process.env.BRENT_MARKET_DATA_URL ?? BRENT_MARKET_DATA_URL;
+}
+
+function getInflationNowcastUrl(): string {
+  return process.env.INFLATION_NOWCAST_URL ?? CLEVELAND_FED_NOWCAST_URL;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -134,6 +142,97 @@ function upsertLatestPoint(points: SeriesPoint[], point: SeriesPoint): SeriesPoi
 function numberFrom(value: number | string | undefined): number | null {
   const parsed = typeof value === "number" ? value : Number.parseFloat(value ?? "");
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeWhitespace(value: string): string {
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function parseNowcastRows(section: string): InflationNowcastRow[] {
+  const rowPattern =
+    /([A-Z][a-z]+ \d{4})\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(\d{2}\/\d{2})/g;
+  const rows: InflationNowcastRow[] = [];
+
+  for (const match of section.matchAll(rowPattern)) {
+    rows.push({
+      month: match[1],
+      cpi: Number.parseFloat(match[2]),
+      coreCpi: Number.parseFloat(match[3]),
+      pce: Number.parseFloat(match[4]),
+      corePce: Number.parseFloat(match[5]),
+      updated: match[6],
+    });
+  }
+
+  return rows;
+}
+
+function parseQuarterlyNowcast(text: string): InflationNowcastRow | undefined {
+  const match = text.match(
+    /Quarterly annualized percent change Quarter CPI Core CPI PCE Core PCE Updated\s+(\d{4}:Q\d)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(\d{2}\/\d{2})/,
+  );
+
+  if (!match) return undefined;
+
+  return {
+    month: match[1],
+    cpi: Number.parseFloat(match[2]),
+    coreCpi: Number.parseFloat(match[3]),
+    pce: Number.parseFloat(match[4]),
+    corePce: Number.parseFloat(match[5]),
+    updated: match[6],
+  };
+}
+
+function parseInflationNowcast(html: string): InflationNowcast {
+  const text = normalizeWhitespace(html);
+  const momStart = text.indexOf("Inflation, month-over-month percent change");
+  const yoyStart = text.indexOf("Inflation, year-over-year percent change");
+  const quarterlyStart = text.indexOf("Quarterly annualized percent change");
+
+  if (momStart < 0 || yoyStart < 0 || quarterlyStart < 0) {
+    throw new Error("Cleveland Fed nowcast table was not found");
+  }
+
+  const monthOverMonth = parseNowcastRows(text.slice(momStart, yoyStart));
+  const yearOverYear = parseNowcastRows(text.slice(yoyStart, quarterlyStart));
+  const quarterlyAnnualized = parseQuarterlyNowcast(text.slice(quarterlyStart));
+
+  if (monthOverMonth.length === 0 || yearOverYear.length === 0) {
+    throw new Error("Cleveland Fed nowcast table returned no usable rows");
+  }
+
+  return {
+    source: "cleveland-fed",
+    sourceName: "Cleveland Fed Inflation Nowcasting",
+    latestMonth: monthOverMonth[0].month,
+    previousMonth: monthOverMonth[1]?.month,
+    updated: monthOverMonth[0].updated,
+    monthOverMonth,
+    yearOverYear,
+    quarterlyAnnualized,
+  };
+}
+
+async function fetchInflationNowcast(): Promise<InflationNowcast> {
+  const response = await fetch(getInflationNowcastUrl(), {
+    headers: {
+      accept: "text/html,application/xhtml+xml",
+      "user-agent": "RateCutRadar/1.0 (+https://rate-cut-radar-1-github-ssh.vercel.app)",
+    },
+    next: { revalidate: getRevalidateSeconds() },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Cleveland Fed nowcast returned HTTP ${response.status}`);
+  }
+
+  const html = await response.text();
+  if (html.trim().length === 0) {
+    throw new Error("Cleveland Fed nowcast returned an empty response");
+  }
+
+  return parseInflationNowcast(html);
 }
 
 async function fetchBrentMarketQuote(): Promise<SeriesPoint> {
@@ -217,6 +316,46 @@ function buildFreshnessNotices(series: DashboardSeries): string[] {
         ]
       : [];
   });
+}
+
+async function getInflationNowcastNotice(): Promise<{
+  nowcast?: InflationNowcast;
+  notice: string;
+}> {
+  try {
+    const nowcast = await fetchInflationNowcast();
+    const mom = nowcast.monthOverMonth[0];
+    const yoy = nowcast.yearOverYear[0];
+
+    return {
+      nowcast,
+      notice: `通胀补充数据使用 Cleveland Fed Inflation Nowcasting（更新 ${nowcast.updated}）：${nowcast.latestMonth} Core PCE nowcast 为 MoM ${mom.corePce}%，YoY ${yoy.corePce}%。`,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+
+    return {
+      notice: `Cleveland Fed Inflation Nowcasting 暂时不可用，通胀信号仅使用 FRED 官方月频数据。错误信息：${message}`,
+    };
+  }
+}
+
+function dataSourceFor(options: {
+  failures: string[];
+  usedMarketQuote: boolean;
+  hasNowcast: boolean;
+}): DashboardData["source"] {
+  if (options.failures.length > 0) {
+    return options.hasNowcast ? "partial+nowcast" : "partial";
+  }
+
+  if (options.usedMarketQuote && options.hasNowcast) {
+    return "fred+market+nowcast";
+  }
+
+  if (options.usedMarketQuote) return "fred+market";
+  if (options.hasNowcast) return "fred+nowcast";
+  return "fred";
 }
 
 async function fetchFredSeries(
@@ -352,22 +491,26 @@ export async function getDashboardData(): Promise<DashboardData> {
       );
     }
 
-    const supplemented = await supplementBrentMarketQuote(series);
+    const [supplemented, inflationNowcast] = await Promise.all([
+      supplementBrentMarketQuote(series),
+      getInflationNowcastNotice(),
+    ]);
     const notices = [
       ...buildFreshnessNotices(supplemented.series),
       ...(supplemented.notice ? [supplemented.notice] : []),
+      inflationNowcast.notice,
     ];
-    const source =
-      failures.length > 0
-        ? "partial"
-        : supplemented.usedMarketQuote
-          ? "fred+market"
-          : "fred";
+    const source = dataSourceFor({
+      failures,
+      usedMarketQuote: supplemented.usedMarketQuote,
+      hasNowcast: Boolean(inflationNowcast.nowcast),
+    });
 
     return {
       series: supplemented.series,
       source,
       updatedAt: new Date().toISOString(),
+      inflationNowcast: inflationNowcast.nowcast,
       warning:
         failures.length > 0
           ? `部分 FRED 指标暂时不可用，已仅对失败指标使用模拟数据：${failures.join("；")}`
