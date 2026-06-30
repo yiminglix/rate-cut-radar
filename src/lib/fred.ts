@@ -361,9 +361,7 @@ async function supplementBrentMarketQuote(
         ...series,
         DCOILBRENTEU: nextSeries,
       },
-      notice: fredLatest
-        ? `Brent 最新价使用 Oilprice/Barcharts 市场报价（${quote.date}，${quote.value} 美元/桶）；FRED Brent 现货最新观测仍停在 ${fredLatest.date}。`
-        : `Brent 最新价使用 Oilprice/Barcharts 市场报价（${quote.date}，${quote.value} 美元/桶）。`,
+      notice: `Brent 已使用 Oilprice/Barcharts 市场报价更新至 ${quote.date}，最新 ${quote.value} 美元/桶。`,
       usedMarketQuote: true,
     };
   } catch (error) {
@@ -488,7 +486,7 @@ async function supplementTreasuryRates(
       series: nextSeries,
       notice:
         fredLatest && rates.date > fredLatest.date
-          ? `美债收益率使用 U.S. Treasury Daily Treasury Rates 补到 ${rates.date}；FRED 最新美债观测仍停在 ${fredLatest.date}。`
+          ? `美债收益率已使用 U.S. Treasury Daily Treasury Rates 更新至 ${rates.date}（最新可用官方交易日）。`
           : undefined,
       usedTreasuryRates: true,
     };

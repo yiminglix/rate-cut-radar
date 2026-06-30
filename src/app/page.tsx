@@ -705,9 +705,12 @@ function DataNotice({
   notices?: string[];
 }) {
   if (!warning && (!notices || notices.length === 0)) return null;
+  const tone = warning
+    ? "border-amber-200 bg-amber-50 text-amber-800"
+    : "border-zinc-200 bg-white text-zinc-600";
 
   return (
-    <section className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+    <section className={`rounded-lg border p-4 text-sm leading-6 shadow-sm ${tone}`}>
       {warning ? <p className="font-medium">{warning}</p> : null}
       {notices && notices.length > 0 ? (
         <ul className={warning ? "mt-2 space-y-1" : "space-y-1"}>
