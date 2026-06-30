@@ -136,6 +136,14 @@ export function generateDailyBrief(
 }
 
 export function generateExecutiveSummary(radar: RateCutRadar): string {
+  if (radar.decision.confidence === "low") {
+    return radar.decision.headline;
+  }
+
+  if (radar.decision.confidence === "medium") {
+    return radar.decision.headline;
+  }
+
   if (radar.politicalCutRisk) {
     return "短端降息，长端不信，警惕高波动。";
   }

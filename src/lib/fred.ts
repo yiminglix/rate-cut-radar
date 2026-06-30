@@ -2,6 +2,9 @@ import { mockDashboardSeries, SERIES_META } from "./mock-data";
 import type {
   AssetImpact,
   AssetMarketTrend,
+  DataQualityItem,
+  DataQualityReport,
+  DataQualityStatus,
   DashboardData,
   DashboardSeries,
   FredSeriesId,
@@ -717,6 +720,259 @@ function buildFreshnessNotices(series: DashboardSeries): string[] {
   });
 }
 
+function dataQualityItem(
+  label: string,
+  status: DataQualityStatus,
+  source: string,
+  detail: string,
+  options: {
+    latestDate?: string;
+    blocking?: boolean;
+  } = {},
+): DataQualityItem {
+  return {
+    label,
+    status,
+    source,
+    detail,
+    latestDate: options.latestDate,
+    blocking: options.blocking ?? false,
+  };
+}
+
+function latestSeriesDate(
+  series: DashboardSeries,
+  seriesIds: FredSeriesId[],
+): string | undefined {
+  const dates = seriesIds
+    .map((seriesId) => latestPoint(series[seriesId])?.date)
+    .filter((date): date is string => Boolean(date));
+
+  if (dates.length !== seriesIds.length) return undefined;
+  return dates.sort((a, b) => a.localeCompare(b))[0];
+}
+
+function maxBusinessAge(
+  series: DashboardSeries,
+  seriesIds: FredSeriesId[],
+): number {
+  return Math.max(
+    ...seriesIds.map((seriesId) => {
+      const point = latestPoint(series[seriesId]);
+      return point ? businessDaysSince(point.date) : Number.POSITIVE_INFINITY;
+    }),
+  );
+}
+
+function dailyQualityItem(
+  label: string,
+  series: DashboardSeries,
+  seriesIds: FredSeriesId[],
+  source: string,
+  blocking: boolean,
+): DataQualityItem {
+  const latestDate = latestSeriesDate(series, seriesIds);
+
+  if (!latestDate) {
+    return dataQualityItem(label, "missing", source, "缺少有效观测，相关结论降级。", {
+      blocking,
+    });
+  }
+
+  const age = maxBusinessAge(series, seriesIds);
+  const status: DataQualityStatus =
+    age > getDailyStaleDays() ? "stale" : "fresh";
+  const detail =
+    status === "fresh"
+      ? `已更新至 ${latestDate}，处于最新可用交易日范围内。`
+      : `最新为 ${latestDate}，已滞后约 ${age} 个交易日。`;
+
+  return dataQualityItem(label, status, source, detail, {
+    latestDate,
+    blocking,
+  });
+}
+
+function weeklyQualityItem(
+  label: string,
+  points: SeriesPoint[],
+  source: string,
+): DataQualityItem {
+  const point = latestPoint(points);
+  if (!point) {
+    return dataQualityItem(label, "missing", source, "缺少有效周频观测。");
+  }
+
+  const age = daysSince(point.date);
+  const status: DataQualityStatus =
+    age > getWeeklyStaleDays() ? "stale" : "fresh";
+  const detail =
+    status === "fresh"
+      ? `最新为 ${point.date}，周频数据仍在有效窗口内。`
+      : `最新为 ${point.date}，已滞后约 ${age} 天。`;
+
+  return dataQualityItem(label, status, source, detail, {
+    latestDate: point.date,
+  });
+}
+
+function pceQualityItem(
+  series: DashboardSeries,
+  nowcast?: InflationNowcast,
+): DataQualityItem {
+  const core = latestPoint(series.PCEPILFE);
+  const trimmed = latestPoint(series.PCETRIM1M158SFRBDAL);
+  if (!core || !trimmed) {
+    return dataQualityItem(
+      "通胀数据",
+      "missing",
+      "FRED / Cleveland Fed",
+      "缺少官方 PCE 或 Trimmed Mean PCE，通胀结论不能强判。",
+    );
+  }
+
+  const latestDate = core.date < trimmed.date ? core.date : trimmed.date;
+  const age = Math.max(daysSince(core.date), daysSince(trimmed.date));
+  if (age > getMonthlyStaleDays() && !nowcast) {
+    return dataQualityItem(
+      "通胀数据",
+      "stale",
+      "FRED",
+      `官方 PCE 最新为 ${latestDate}，且暂无 nowcast 补充。`,
+      { latestDate },
+    );
+  }
+
+  const detail = nowcast
+    ? `官方 PCE 最新为 ${latestDate}；Cleveland Fed nowcast 已补到 ${nowcast.latestMonth}。`
+    : `官方 PCE 最新为 ${latestDate}；月频数据天然滞后，暂无 nowcast 补充。`;
+
+  return dataQualityItem(
+    "通胀数据",
+    "expected-lag",
+    nowcast ? "FRED + Cleveland Fed" : "FRED",
+    detail,
+    { latestDate },
+  );
+}
+
+function assetTrendQualityItem(marketContext?: MarketContext): DataQualityItem {
+  const trends = marketContext?.assetTrends ?? [];
+  if (trends.length === 0) {
+    return dataQualityItem(
+      "资产价格",
+      "missing",
+      "Yahoo Finance",
+      "资产价格趋势缺失，资产影响只能按宏观条件粗略判断。",
+    );
+  }
+
+  const latestDate = trends
+    .map((trend) => trend.latestDate)
+    .sort((a, b) => a.localeCompare(b))[0];
+  const age = Math.max(
+    ...trends.map((trend) => businessDaysSince(trend.latestDate)),
+  );
+  const status: DataQualityStatus = age > 2 ? "stale" : "fresh";
+  const detail =
+    status === "fresh"
+      ? `已校验 ${trends.length} 类资产趋势，最新价格日期 ${latestDate}。`
+      : `资产趋势最新为 ${latestDate}，部分价格已滞后约 ${age} 个交易日。`;
+
+  return dataQualityItem("资产价格", status, "Yahoo Finance", detail, {
+    latestDate,
+  });
+}
+
+function policyQualityItem(marketContext?: MarketContext): DataQualityItem {
+  const pricing = marketContext?.policyPricing;
+  if (!pricing) {
+    return dataQualityItem(
+      "政策定价",
+      "missing",
+      "Fed Funds Futures",
+      "缺少政策期货数据，不能判断市场是否真正押注降息。",
+      { blocking: true },
+    );
+  }
+
+  const age = businessDaysSince(pricing.latestDate);
+  const status: DataQualityStatus = age > 1 ? "stale" : "fresh";
+  const detail =
+    status === "fresh"
+      ? `ZQ=F 已更新至 ${pricing.latestDate}，隐含利率 ${pricing.impliedRate}%。`
+      : `ZQ=F 最新为 ${pricing.latestDate}，政策定价已滞后约 ${age} 个交易日。`;
+
+  return dataQualityItem("政策定价", status, pricing.sourceName, detail, {
+    latestDate: pricing.latestDate,
+    blocking: true,
+  });
+}
+
+function buildDataQualityReport(options: {
+  series: DashboardSeries;
+  inflationNowcast?: InflationNowcast;
+  marketContext?: MarketContext;
+  warning?: string;
+}): DataQualityReport {
+  const items = [
+    dailyQualityItem(
+      "美债曲线",
+      options.series,
+      ["DGS2", "DGS10", "DGS30", "T10Y2Y"],
+      "FRED + U.S. Treasury",
+      true,
+    ),
+    dailyQualityItem(
+      "Brent 油价",
+      options.series,
+      ["DCOILBRENTEU"],
+      "FRED + Oilprice/Barcharts",
+      true,
+    ),
+    pceQualityItem(options.series, options.inflationNowcast),
+    weeklyQualityItem("初请失业金", options.series.ICSA, "FRED"),
+    dailyQualityItem("信用利差", options.series, ["BAMLH0A0HYM2"], "FRED", false),
+    dailyQualityItem(
+      "通胀预期",
+      options.series,
+      ["T5YIFR", "T10YIE"],
+      "FRED",
+      false,
+    ),
+    policyQualityItem(options.marketContext),
+    assetTrendQualityItem(options.marketContext),
+  ];
+  const blockingIssueCount = items.filter(
+    (item) => item.blocking && (item.status === "stale" || item.status === "missing"),
+  ).length;
+  const softIssueCount = items.filter(
+    (item) =>
+      !item.blocking && (item.status === "stale" || item.status === "missing"),
+  ).length;
+  const status: DataQualityReport["status"] = options.warning
+    ? "fail"
+    : blockingIssueCount > 0
+      ? "fail"
+      : softIssueCount > 0
+        ? "watch"
+        : "pass";
+  const summary =
+    status === "pass"
+      ? "数据检验通过：关键日频市场数据已更新，月频通胀按最新官方数据与 nowcast 解读。"
+      : status === "watch"
+        ? "数据检验需关注：核心数据可用，但部分辅助数据缺失或滞后。"
+        : "数据检验未通过：关键数据缺失或滞后，首页结论需要降级。";
+
+  return {
+    status,
+    summary,
+    checkedAt: new Date().toISOString(),
+    blockingIssueCount,
+    items,
+  };
+}
+
 async function getInflationNowcastNotice(): Promise<{
   nowcast?: InflationNowcast;
   notice: string;
@@ -841,12 +1097,29 @@ async function fetchFredSeries(
 }
 
 function mockDashboardData(warning: string, notices: string[] = []): DashboardData {
+  const checkedAt = new Date().toISOString();
+
   return {
     series: mockDashboardSeries,
     source: "mock",
-    updatedAt: new Date().toISOString(),
+    updatedAt: checkedAt,
     warning,
     notices,
+    dataQuality: {
+      status: "fail",
+      summary: "当前使用 mock data，本地预览可看界面，但不能作为交易参考。",
+      checkedAt,
+      blockingIssueCount: 1,
+      items: [
+        dataQualityItem(
+          "实时数据源",
+          "missing",
+          "mock data",
+          "未配置或未取到真实数据，所有结论仅用于预览。",
+          { blocking: true },
+        ),
+      ],
+    },
   };
 }
 
@@ -910,17 +1183,25 @@ export async function getDashboardData(): Promise<DashboardData> {
       hasNowcast: Boolean(inflationNowcast.nowcast),
     });
 
+    const warning =
+      failures.length > 0
+        ? `部分 FRED 指标暂时不可用，已仅对失败指标使用模拟数据：${failures.join("；")}`
+        : undefined;
+
     return {
       series: brentSupplemented.series,
       source,
       updatedAt: new Date().toISOString(),
       inflationNowcast: inflationNowcast.nowcast,
       marketContext,
-      warning:
-        failures.length > 0
-          ? `部分 FRED 指标暂时不可用，已仅对失败指标使用模拟数据：${failures.join("；")}`
-          : undefined,
+      warning,
       notices,
+      dataQuality: buildDataQualityReport({
+        series: brentSupplemented.series,
+        inflationNowcast: inflationNowcast.nowcast,
+        marketContext,
+        warning,
+      }),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown error";

@@ -63,6 +63,7 @@ export type DashboardData = {
   notices?: string[];
   inflationNowcast?: InflationNowcast;
   marketContext?: MarketContext;
+  dataQuality: DataQualityReport;
 };
 
 export type SignalColor = "green" | "yellow" | "red" | "stale";
@@ -121,9 +122,17 @@ export type WhatChangedToday = {
 
 export type AssetBias = "bullish" | "neutral" | "bearish" | "volatile";
 
+export type PriceConfirmation =
+  | "confirmed"
+  | "unconfirmed"
+  | "against"
+  | "missing";
+
 export type AssetImpact = {
   asset: "恒生科技" | "纳指成长" | "长债/TLT" | "黄金" | "BTC";
   bias: AssetBias;
+  macroBias: AssetBias;
+  priceConfirmation: PriceConfirmation;
   summary: string;
 };
 
@@ -158,6 +167,47 @@ export type MarketContext = {
   notices: string[];
 };
 
+export type DataQualityStatus =
+  | "fresh"
+  | "expected-lag"
+  | "stale"
+  | "missing";
+
+export type DataQualityItem = {
+  label: string;
+  status: DataQualityStatus;
+  latestDate?: string;
+  source: string;
+  detail: string;
+  blocking: boolean;
+};
+
+export type DataQualityReport = {
+  status: "pass" | "watch" | "fail";
+  summary: string;
+  checkedAt: string;
+  blockingIssueCount: number;
+  items: DataQualityItem[];
+};
+
+export type DecisionTone = "supportive" | "watch" | "risk" | "neutral";
+
+export type DecisionConclusion = {
+  title: string;
+  verdict: string;
+  tone: DecisionTone;
+  summary: string;
+};
+
+export type DecisionDeck = {
+  headline: string;
+  summary: string;
+  confidence: "high" | "medium" | "low";
+  confidenceLabel: string;
+  conclusions: DecisionConclusion[];
+  invalidationTriggers: string[];
+};
+
 export type RateCutRadar = {
   score: number;
   previousScore: number;
@@ -177,6 +227,7 @@ export type RateCutRadar = {
   keyMetrics: MarketMove[];
   assetImpact: AssetImpact[];
   assetImpactSummary: string;
+  decision: DecisionDeck;
   politicalCutRisk: boolean;
   healthStressRisk: boolean;
   policyPricingRisk: boolean;

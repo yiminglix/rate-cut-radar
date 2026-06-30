@@ -2,12 +2,17 @@ import { RadarCharts } from "@/components/RadarCharts";
 import { generateDailyBrief, generateExecutiveSummary } from "@/lib/brief";
 import { getDashboardData } from "@/lib/fred";
 import { calculateRateCutRadar } from "@/lib/signals";
+import type { ReactNode } from "react";
 import type {
   AssetBias,
   AssetImpact,
+  DataQualityReport,
+  DataQualityStatus,
   DataSource,
+  DecisionTone,
   MarketContext,
   MarketMove,
+  PriceConfirmation,
   RadarStatus,
   RateCutRadar,
   SignalColor,
@@ -93,6 +98,90 @@ const moveTone: Record<MarketMove["tone"], string> = {
   neutral: "text-zinc-700",
 };
 
+const decisionTone: Record<
+  DecisionTone,
+  {
+    label: string;
+    className: string;
+    dot: string;
+    surface: string;
+  }
+> = {
+  supportive: {
+    label: "支持",
+    className: "bg-emerald-400/10 text-emerald-700 ring-emerald-500/20",
+    dot: "bg-emerald-400",
+    surface: "border-emerald-500/20 bg-emerald-50/80",
+  },
+  watch: {
+    label: "待确认",
+    className: "bg-amber-400/10 text-amber-700 ring-amber-500/20",
+    dot: "bg-amber-400",
+    surface: "border-amber-500/20 bg-amber-50/80",
+  },
+  risk: {
+    label: "风险",
+    className: "bg-rose-500/10 text-rose-700 ring-rose-500/20",
+    dot: "bg-rose-500",
+    surface: "border-rose-500/20 bg-rose-50/80",
+  },
+  neutral: {
+    label: "中性",
+    className: "bg-zinc-400/10 text-zinc-700 ring-zinc-500/20",
+    dot: "bg-zinc-400",
+    surface: "border-zinc-200 bg-zinc-50",
+  },
+};
+
+const dataQualityTone: Record<
+  DataQualityReport["status"],
+  {
+    label: string;
+    className: string;
+  }
+> = {
+  pass: {
+    label: "数据通过",
+    className: "bg-emerald-400/10 text-emerald-700 ring-emerald-500/20",
+  },
+  watch: {
+    label: "数据关注",
+    className: "bg-amber-400/10 text-amber-700 ring-amber-500/20",
+  },
+  fail: {
+    label: "数据降级",
+    className: "bg-rose-500/10 text-rose-700 ring-rose-500/20",
+  },
+};
+
+const dataQualityStatusLabel: Record<DataQualityStatus, string> = {
+  fresh: "新鲜",
+  "expected-lag": "最新可用",
+  stale: "滞后",
+  missing: "缺失",
+};
+
+const priceConfirmationLabel: Record<PriceConfirmation, string> = {
+  confirmed: "价格确认",
+  unconfirmed: "未确认",
+  against: "价格反向",
+  missing: "价格缺失",
+};
+
+function dataQualityItemTone(status: DataQualityStatus): string {
+  if (status === "fresh") return "text-emerald-700";
+  if (status === "expected-lag") return "text-zinc-700";
+  if (status === "stale") return "text-amber-700";
+  return "text-rose-700";
+}
+
+function priceConfirmationTone(status: PriceConfirmation): string {
+  if (status === "confirmed") return "bg-emerald-400/10 text-emerald-700 ring-emerald-500/20";
+  if (status === "against") return "bg-rose-500/10 text-rose-700 ring-rose-500/20";
+  if (status === "missing") return "bg-zinc-400/10 text-zinc-700 ring-zinc-500/20";
+  return "bg-amber-400/10 text-amber-700 ring-amber-500/20";
+}
+
 function formatUpdatedAt(value: string): string {
   return new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "medium",
@@ -143,131 +232,138 @@ function statusLabel(status: RadarStatus): string {
   return labels[status];
 }
 
-function scoreStroke(radar: RateCutRadar): string {
-  if (radar.politicalCutRisk) return "#e11d48";
-  if (radar.score >= 80) return "#10b981";
-  if (radar.score >= 60) return "#14b8a6";
-  if (radar.score >= 40) return "#f59e0b";
-  return "#e11d48";
-}
-
-function scoreText(radar: RateCutRadar): string {
-  if (radar.politicalCutRisk) return "text-rose-500";
-  if (radar.score >= 80) return "text-emerald-500";
-  if (radar.score >= 60) return "text-teal-500";
-  if (radar.score >= 40) return "text-amber-500";
-  return "text-rose-500";
-}
-
-function ScoreRing({ radar }: { radar: RateCutRadar }) {
-  const radius = 54;
-  const circumference = 2 * Math.PI * radius;
-  const dash = (radar.score / 100) * circumference;
+function DataQualityBadge({ report }: { report: DataQualityReport }) {
+  const tone = dataQualityTone[report.status];
 
   return (
-    <div className="relative h-40 w-40 shrink-0">
-      <svg aria-hidden="true" className="h-full w-full rotate-[-90deg]" viewBox="0 0 144 144">
-        <circle
-          cx="72"
-          cy="72"
-          fill="none"
-          r={radius}
-          stroke="rgba(255,255,255,0.12)"
-          strokeWidth="10"
-        />
-        <circle
-          cx="72"
-          cy="72"
-          fill="none"
-          r={radius}
-          stroke={scoreStroke(radar)}
-          strokeDasharray={`${dash} ${circumference - dash}`}
-          strokeLinecap="round"
-          strokeWidth="10"
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <p className={`font-mono text-5xl font-semibold leading-none ${scoreText(radar)}`}>
-          {radar.score}
-        </p>
-        <p className="mt-1 font-mono text-sm font-semibold text-zinc-400">/100</p>
-      </div>
-    </div>
+    <span
+      className={`inline-flex items-center rounded-md px-2 py-1 text-[11px] font-semibold ring-1 ${tone.className}`}
+    >
+      {tone.label}
+    </span>
   );
 }
 
-function ScoreCard({ radar }: { radar: RateCutRadar }) {
-  const deltaClass =
-    radar.scoreDelta > 0
-      ? "text-emerald-300"
-      : radar.scoreDelta < 0
-        ? "text-rose-300"
-        : "text-zinc-300";
+function DecisionPill({
+  tone,
+  children,
+}: {
+  tone: DecisionTone;
+  children: ReactNode;
+}) {
+  const style = decisionTone[tone];
 
   return (
-    <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-white shadow-sm">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold tracking-[0.16em] text-zinc-400">
-            降息预期分数
-          </p>
-          <p className={`mt-2 font-mono text-lg font-semibold ${deltaClass}`}>
-            今日变化 {deltaText(radar.scoreDelta)}
-          </p>
-        </div>
-        <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-white/10">
-          V1.8
-        </span>
-      </div>
-      <div className="mt-3 flex items-center justify-center">
-        <ScoreRing radar={radar} />
-      </div>
-    </section>
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold ring-1 ${style.className}`}
+    >
+      <span className={`h-2 w-2 rounded-full ${style.dot}`} />
+      {children}
+    </span>
   );
 }
 
-function RegimeCard({
+function DecisionHero({
   radar,
+  dataQuality,
   executiveSummary,
 }: {
   radar: RateCutRadar;
+  dataQuality: DataQualityReport;
   executiveSummary: string;
 }) {
-  return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">当前状态</p>
-      <h2 className="mt-2 text-xl font-semibold text-zinc-950">
-        {statusLabel(radar.status)}
-      </h2>
-      <p className="mt-2 text-sm leading-6 text-zinc-600">{radar.statusSummary}</p>
-      <div className="mt-4 rounded-md bg-zinc-950 p-3 text-white">
-        <p className="text-xs font-semibold text-zinc-400">今日一句话</p>
-        <p className="mt-1 text-sm font-medium leading-6">{executiveSummary}</p>
-      </div>
-    </section>
-  );
-}
+  const confidenceClass =
+    radar.decision.confidence === "high"
+      ? "text-emerald-400"
+      : radar.decision.confidence === "medium"
+        ? "text-amber-300"
+        : "text-rose-300";
+  const decisionSummary =
+    dataQuality.status === "fail"
+      ? "关键数据未通过检验，今天只看风险提示，不把结论当成交易信号。"
+      : radar.decision.summary;
 
-function FirstScreenImpact({ radar }: { radar: RateCutRadar }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
-      <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">资产影响</p>
-      <p className="mt-2 text-sm font-medium leading-6 text-zinc-950">
-        {radar.assetImpactSummary}
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {radar.assetImpact.map((impact) => {
-          const tone = assetTone[impact.bias];
-          return (
-            <span
-              key={impact.asset}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold ring-1 ${tone.className}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
-              {impact.asset} {tone.label}
-            </span>
-          );
-        })}
+    <section className="rounded-lg border border-zinc-800 bg-zinc-950 p-4 text-white shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.16em] text-zinc-400">
+            今日结论
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold leading-tight text-white sm:text-3xl">
+            {radar.decision.headline}
+          </h2>
+        </div>
+        <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-white/10">
+          V1.9
+        </span>
+      </div>
+
+      <p className="mt-3 text-sm leading-6 text-zinc-300">{decisionSummary}</p>
+
+      <div className="mt-4 grid gap-2 md:grid-cols-3">
+        {radar.decision.conclusions.map((conclusion) => (
+          <article
+            key={conclusion.title}
+            className="rounded-md bg-white/[0.06] p-3 ring-1 ring-white/10"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-[11px] font-semibold tracking-[0.12em] text-zinc-400">
+                {conclusion.title}
+              </p>
+              <DecisionPill tone={conclusion.tone}>
+                {decisionTone[conclusion.tone].label}
+              </DecisionPill>
+            </div>
+            <h3 className="mt-3 text-base font-semibold leading-6 text-white">
+              {conclusion.verdict}
+            </h3>
+            <p className="mt-2 text-xs leading-5 text-zinc-400">
+              {conclusion.summary}
+            </p>
+          </article>
+        ))}
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-4">
+        <div className="rounded-md bg-white/[0.06] p-3 ring-1 ring-white/10">
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-zinc-400">
+            分数
+          </p>
+          <p className="mt-2 font-mono text-2xl font-semibold text-white">
+            {radar.score}
+            <span className="text-sm text-zinc-500">/100</span>
+          </p>
+        </div>
+        <div className="rounded-md bg-white/[0.06] p-3 ring-1 ring-white/10">
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-zinc-400">
+            今日变化
+          </p>
+          <p className="mt-2 font-mono text-2xl font-semibold text-white">
+            {deltaText(radar.scoreDelta)}
+          </p>
+        </div>
+        <div className="rounded-md bg-white/[0.06] p-3 ring-1 ring-white/10">
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-zinc-400">
+            当前状态
+          </p>
+          <p className="mt-2 text-sm font-semibold leading-6 text-white">
+            {statusLabel(radar.status)}
+          </p>
+        </div>
+        <div className="rounded-md bg-white/[0.06] p-3 ring-1 ring-white/10">
+          <p className="text-[11px] font-semibold tracking-[0.12em] text-zinc-400">
+            置信度
+          </p>
+          <p className={`mt-2 text-sm font-semibold leading-6 ${confidenceClass}`}>
+            {radar.decision.confidenceLabel}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <DataQualityBadge report={dataQuality} />
+        <span className="text-xs leading-5 text-zinc-400">{executiveSummary}</span>
       </div>
     </section>
   );
@@ -562,6 +658,7 @@ function MoveCard({ move }: { move: MarketMove }) {
 
 function AssetImpactCard({ impact }: { impact: AssetImpact }) {
   const tone = assetTone[impact.bias];
+  const macroTone = assetTone[impact.macroBias];
 
   return (
     <article className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
@@ -572,6 +669,20 @@ function AssetImpactCard({ impact }: { impact: AssetImpact }) {
         >
           <span className={`h-2 w-2 rounded-full ${tone.dot}`} />
           {tone.label}
+        </span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold ring-1 ${macroTone.className}`}
+        >
+          宏观 {macroTone.label}
+        </span>
+        <span
+          className={`inline-flex rounded-md px-2 py-1 text-[11px] font-semibold ring-1 ${priceConfirmationTone(
+            impact.priceConfirmation,
+          )}`}
+        >
+          {priceConfirmationLabel[impact.priceConfirmation]}
         </span>
       </div>
       <p className="mt-4 text-sm leading-6 text-zinc-600">{impact.summary}</p>
@@ -678,6 +789,12 @@ function Methodology() {
         <p>
           健康校验用来区分健康降息和压力降息：初请失业金判断就业是否温和降温，高收益债 OAS 判断信用市场是否恐慌，5Y5Y 与 10Y breakeven 判断通胀预期是否仍被锚住。若就业或信用压力明显恶化，即使降息预期升温，也不会直接标记为健康降息。
         </p>
+        <p>
+          V1.9 不再让总分单独决定首页结论。首页先看三条线：政策定价是否真的押注降息，降息健康度是否通过通胀、美债、就业和信用校验，资产价格是否确认宏观方向。若任何关键线索反向，结论会降级。
+        </p>
+        <p>
+          数据检验会检查关键数据是否新鲜：美债和 Brent 必须使用最新可用日频数据；通胀承认官方月频天然滞后，但需要显示最新官方月份并优先叠加 Cleveland Fed nowcast；政策定价和资产价格若缺失，会降低结论置信度。
+        </p>
       </div>
     </details>
   );
@@ -723,6 +840,59 @@ function DataNotice({
   );
 }
 
+function DataQualityPanel({ report }: { report: DataQualityReport }) {
+  const tone = dataQualityTone[report.status];
+
+  return (
+    <details className="group rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">
+              数据检验
+            </p>
+            <span
+              className={`inline-flex rounded-md px-2 py-1 text-[11px] font-semibold ring-1 ${tone.className}`}
+            >
+              {tone.label}
+            </span>
+          </div>
+          <p className="mt-2 text-sm font-medium leading-6 text-zinc-950">
+            {report.summary}
+          </p>
+        </div>
+        <span className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600 ring-1 ring-zinc-200 group-open:hidden">
+          查看
+        </span>
+        <span className="hidden rounded-md bg-zinc-950 px-2 py-1 text-xs font-semibold text-white group-open:inline-flex">
+          收起
+        </span>
+      </summary>
+      <div className="mt-4 grid gap-2 border-t border-zinc-200 pt-4 md:grid-cols-2">
+        {report.items.map((item) => (
+          <div key={item.label} className="rounded-md bg-zinc-50 p-3 ring-1 ring-black/[0.04]">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-semibold text-zinc-950">{item.label}</p>
+              <span
+                className={`font-mono text-[11px] font-semibold ${dataQualityItemTone(
+                  item.status,
+                )}`}
+              >
+                {dataQualityStatusLabel[item.status]}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">{item.detail}</p>
+            <p className="mt-2 text-[11px] leading-5 text-zinc-400">
+              {item.source}
+              {item.latestDate ? ` / ${item.latestDate}` : ""}
+            </p>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
 export default async function Home() {
   const data = await getDashboardData();
   const radar = calculateRateCutRadar(
@@ -754,13 +924,13 @@ export default async function Home() {
           </div>
         </header>
 
-        <section className="grid gap-3 lg:grid-cols-[0.9fr_1.1fr]">
-          <ScoreCard radar={radar} />
-          <div className="grid gap-3">
-            <RegimeCard radar={radar} executiveSummary={executiveSummary} />
-            <FirstScreenImpact radar={radar} />
-          </div>
-        </section>
+        <DecisionHero
+          radar={radar}
+          dataQuality={data.dataQuality}
+          executiveSummary={executiveSummary}
+        />
+
+        <DataQualityPanel report={data.dataQuality} />
 
         <DataNotice warning={data.warning} notices={data.notices} />
 

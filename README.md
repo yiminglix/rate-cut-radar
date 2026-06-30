@@ -2,18 +2,18 @@
 
 Rate Cut Radar / 降息雷达 is a mobile-first macro decision dashboard for tracking whether a healthy rate cut expectation is forming. It links oil pressure, underlying inflation, Treasury-market confirmation, labor cooling, credit stress, and market inflation expectations into a 0-100 score, then translates the setup into asset implications for Hang Seng Tech, NASDAQ growth, TLT, gold, and BTC.
 
-## V1.8 Decision Layer
+## V1.9 Decision Layer
 
 The home screen prioritizes daily decision-making in Chinese:
 
-- 降息预期分数 with a large circular progress display
-- 今日变化 versus the previous trading day
-- 当前状态 and 今日一句话
-- 资产影响 for 恒生科技, 纳指成长, 长债/TLT, 黄金, and BTC
+- 今日结论 as the first screen instead of a score-first dashboard
+- Three headline checks: 降息交易, 健康度, and 资产确认
+- Compact 降息预期分数, 今日变化, 当前状态, and 结论置信度
+- 数据检验 showing whether key sources are fresh, expected-lag, stale, or missing
 - One set of three core signal cards: 油价信号, 通胀信号, 美债信号
 - Three health checks: 劳动力信号, 信用压力, 通胀预期
 - Policy pricing check using 30-Day Fed Funds Futures as a CME futures proxy
-- Asset trend check for 恒生科技, 纳指成长, 长债/TLT, 黄金, and BTC
+- Asset trend check for 恒生科技, 纳指成长, 长债/TLT, 黄金, and BTC, with separate macro bias and price confirmation
 - Processed 关键指标 instead of raw-only macro prints
 - Collapsed 详细简报 and 方法说明
 - 验证路径 charts with conclusion-led Chinese titles
@@ -54,6 +54,8 @@ PCE remains anchored to official FRED/BEA history, but the dashboard can supplem
 Treasury yields remain seeded from FRED history, but the dashboard supplements 2Y, 10Y, 30Y, and 10Y-2Y from the official U.S. Treasury Daily Treasury Rates curve when FRED lags. The charts use the supplemented series, so the headline cards and validation charts stay on the same data date.
 
 V1.8 adds a policy-pricing reality check. CME FedWatch is linked for manual verification, but CME blocks automated backend scraping, so the app uses Yahoo Finance `ZQ=F` 30-Day Fed Funds Futures as an automated proxy and compares the implied rate with FRED `DFF` when available.
+
+V1.9 adds a conclusion-first layer and a data-quality gate. The headline conclusion is no longer allowed to rely on the score alone. It must separately check whether the market is actually pricing rate cuts, whether the rate-cut setup looks healthy, whether asset prices confirm the macro view, and whether the required data sources passed freshness checks.
 
 ## Environment
 
@@ -151,12 +153,15 @@ Status:
 - Health check case: if labor or credit stress turns red, the dashboard will not label the regime as fully healthy even when rate-cut pricing is warming.
 - V1.7.1 healthy-status gates: bond must be green; credit, inflation expectations, and oil must not be red or stale; and at least one of inflation or labor must be green.
 - V1.8 policy-pricing cap: if Fed Funds Futures imply hike risk, the score is capped below healthy territory; if they do not clearly price cuts, the score is capped below Healthy Rate Cut Expectation.
+- V1.9 conclusion gate: the first screen summarizes 降息交易, 健康度, and 资产确认 separately. If policy pricing, long-end Treasuries, credit/labor checks, or asset price confirmation disagree with the macro score, the headline conclusion is downgraded.
+- V1.9 data-quality gate: Treasury yields, Brent, policy pricing, credit, inflation expectations, initial claims, official PCE/nowcast, and asset prices are checked after all supplemental sources are applied. Critical missing or stale data lowers the decision confidence before the user reads the score.
 
 资产影响逻辑:
 
 - Asset labels are no longer derived from macro score alone.
 - Each asset is cross-checked against 1-month and 3-month price trends plus drawdown from its 6-month high.
 - If macro conditions look friendly but the asset trend is still falling, the label is downgraded to 中性 or 高波动 instead of automatically showing 利好.
+- Each asset card now shows both the macro bias and price confirmation, so a favorable macro setup with falling asset prices is visible as an unconfirmed or adverse setup.
 
 通胀逻辑:
 
