@@ -2,7 +2,7 @@
 
 Rate Cut Radar / 降息雷达 is a mobile-first macro decision dashboard for tracking whether a healthy rate cut expectation is forming. It links oil pressure, underlying inflation, Treasury-market confirmation, labor cooling, credit stress, and market inflation expectations into a 0-100 score, then translates the setup into asset implications for Hang Seng Tech, NASDAQ growth, TLT, gold, and BTC.
 
-## V1.7.1 Decision Layer
+## V1.8 Decision Layer
 
 The home screen prioritizes daily decision-making in Chinese:
 
@@ -12,6 +12,8 @@ The home screen prioritizes daily decision-making in Chinese:
 - 资产影响 for 恒生科技, 纳指成长, 长债/TLT, 黄金, and BTC
 - One set of three core signal cards: 油价信号, 通胀信号, 美债信号
 - Three health checks: 劳动力信号, 信用压力, 通胀预期
+- Policy pricing check using 30-Day Fed Funds Futures as a CME futures proxy
+- Asset trend check for 恒生科技, 纳指成长, 长债/TLT, 黄金, and BTC
 - Processed 关键指标 instead of raw-only macro prints
 - Collapsed 详细简报 and 方法说明
 - 验证路径 charts with conclusion-led Chinese titles
@@ -25,6 +27,8 @@ The home screen prioritizes daily decision-making in Chinese:
 - FRED API as the preferred data source
 - Brent market quote supplement when FRED's Brent spot series is stale
 - Cleveland Fed Inflation Nowcasting supplement when official PCE is stale
+- U.S. Treasury Daily Treasury Rates supplement when FRED Treasury yields lag
+- Yahoo Finance chart data for asset trends and Fed Funds Futures proxy data
 - Built-in mock data when no FRED API key is configured
 
 ## FRED Series
@@ -46,6 +50,10 @@ The dashboard reads these FRED series:
 Brent is still seeded from FRED history, but the latest point can be supplemented from Oilprice/Barcharts because the FRED Brent spot series may lag fast-moving futures markets by several days.
 
 PCE remains anchored to official FRED/BEA history, but the dashboard can supplement the latest unreleased month with Cleveland Fed Inflation Nowcasting so inflation analysis does not stop at the last official monthly release.
+
+Treasury yields remain seeded from FRED history, but the dashboard supplements 2Y, 10Y, 30Y, and 10Y-2Y from the official U.S. Treasury Daily Treasury Rates curve when FRED lags. The charts use the supplemented series, so the headline cards and validation charts stay on the same data date.
+
+V1.8 adds a policy-pricing reality check. CME FedWatch is linked for manual verification, but CME blocks automated backend scraping, so the app uses Yahoo Finance `ZQ=F` 30-Day Fed Funds Futures as an automated proxy and compares the implied rate with FRED `DFF` when available.
 
 ## Environment
 
@@ -75,6 +83,8 @@ Optional variables:
 - `FRED_MONTHLY_STALE_DAYS`: defaults to `75`
 - `BRENT_MARKET_DATA_URL`: defaults to Oilprice/Barcharts' public latest-prices JSON and is used only to supplement Brent when the FRED Brent spot series is stale
 - `INFLATION_NOWCAST_URL`: defaults to Cleveland Fed Inflation Nowcasting and supplements official monthly PCE data
+- `TREASURY_DAILY_RATES_URL`: defaults to the official U.S. Treasury Daily Treasury Rates CSV
+- `YAHOO_CHART_BASE_URL`: defaults to Yahoo Finance chart data for asset trends and Fed Funds Futures proxy checks
 
 ## Get a FRED API Key
 
@@ -140,6 +150,13 @@ Status:
 - Special case: if 2Y yields fall while 10Y or 30Y yields rise clearly, the status becomes Political Cut Risk.
 - Health check case: if labor or credit stress turns red, the dashboard will not label the regime as fully healthy even when rate-cut pricing is warming.
 - V1.7.1 healthy-status gates: bond must be green; credit, inflation expectations, and oil must not be red or stale; and at least one of inflation or labor must be green.
+- V1.8 policy-pricing cap: if Fed Funds Futures imply hike risk, the score is capped below healthy territory; if they do not clearly price cuts, the score is capped below Healthy Rate Cut Expectation.
+
+资产影响逻辑:
+
+- Asset labels are no longer derived from macro score alone.
+- Each asset is cross-checked against 1-month and 3-month price trends plus drawdown from its 6-month high.
+- If macro conditions look friendly but the asset trend is still falling, the label is downgraded to 中性 or 高波动 instead of automatically showing 利好.
 
 通胀逻辑:
 

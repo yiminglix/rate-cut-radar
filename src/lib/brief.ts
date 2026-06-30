@@ -83,6 +83,14 @@ function healthCheckPhrase(radar: RateCutRadar): string {
   return "健康校验仍需跟踪：就业、信用利差和通胀预期还没有同时给出强确认。";
 }
 
+function policyPhrase(radar: RateCutRadar): string {
+  if (radar.policyPricingRisk) {
+    return "政策期货没有配合降息叙事，外部市场反而在定价加息风险，因此需要压低降息预期健康度。";
+  }
+
+  return "";
+}
+
 function assetPhrase(radar: RateCutRadar): string {
   if (radar.politicalCutRisk) {
     return "资产含义上，恒生科技、纳指成长和 BTC 可能先受流动性想象推动，但真正的风险偏好修复需要长端美债企稳；TLT 不宜追高，黄金对冲价值上升。";
@@ -108,10 +116,10 @@ export function generateDailyBrief(
 ): string {
   const sourcePhrases: Record<DataSource, string> = {
     fred: "基于 FRED 最新可用数据",
-    "fred+market": "基于 FRED 数据，并用市场报价补充 Brent 最新点",
+    "fred+market": "基于 FRED 数据，并用市场与政策定价数据补充最新状态",
     "fred+nowcast": "基于 FRED 数据，并用 Cleveland Fed nowcast 补充通胀",
     "fred+market+nowcast":
-      "基于 FRED 数据，并用市场报价补充 Brent、用 Cleveland Fed nowcast 补充通胀",
+      "基于 FRED 数据，并用市场/政策数据补充最新状态、用 Cleveland Fed nowcast 补充通胀",
     partial: "基于部分 FRED 数据，失败指标使用模拟数据兜底",
     "partial+nowcast":
       "基于部分 FRED 数据，失败指标使用模拟数据兜底，并用 Cleveland Fed nowcast 补充通胀",
@@ -124,12 +132,16 @@ export function generateDailyBrief(
     radar.signals.oil.color,
   )}${inflationPhrase(radar.signals.inflation.color)}${bondPhrase(
     radar,
-  )}${healthCheckPhrase(radar)}${assetPhrase(radar)}`;
+  )}${healthCheckPhrase(radar)}${policyPhrase(radar)}${assetPhrase(radar)}`;
 }
 
 export function generateExecutiveSummary(radar: RateCutRadar): string {
   if (radar.politicalCutRisk) {
     return "短端降息，长端不信，警惕高波动。";
+  }
+
+  if (radar.policyPricingRisk) {
+    return "政策定价不配合，别只看宏观高分。";
   }
 
   if (radar.healthStressRisk) {

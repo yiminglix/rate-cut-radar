@@ -62,6 +62,7 @@ export type DashboardData = {
   warning?: string;
   notices?: string[];
   inflationNowcast?: InflationNowcast;
+  marketContext?: MarketContext;
 };
 
 export type SignalColor = "green" | "yellow" | "red" | "stale";
@@ -126,6 +127,37 @@ export type AssetImpact = {
   summary: string;
 };
 
+export type AssetMarketTrend = {
+  asset: AssetImpact["asset"];
+  symbol: string;
+  sourceName: string;
+  latestDate: string;
+  latestPrice: number;
+  oneMonthChangePct: number;
+  threeMonthChangePct: number;
+  drawdownFromSixMonthHighPct: number;
+  trend: "up" | "flat" | "down";
+};
+
+export type PolicyPricing = {
+  sourceName: string;
+  latestDate: string;
+  fedFundsFutureSymbol: string;
+  fedFundsFuturePrice: number;
+  impliedRate: number;
+  effectiveFedFundsRate?: number;
+  impliedDeltaBps?: number;
+  stance: "cut" | "neutral" | "hike" | "unknown";
+  cmeFedWatchUrl: string;
+  note: string;
+};
+
+export type MarketContext = {
+  assetTrends: AssetMarketTrend[];
+  policyPricing?: PolicyPricing;
+  notices: string[];
+};
+
 export type RateCutRadar = {
   score: number;
   previousScore: number;
@@ -147,4 +179,5 @@ export type RateCutRadar = {
   assetImpactSummary: string;
   politicalCutRisk: boolean;
   healthStressRisk: boolean;
+  policyPricingRisk: boolean;
 };

@@ -6,6 +6,7 @@ import type {
   AssetBias,
   AssetImpact,
   DataSource,
+  MarketContext,
   MarketMove,
   RadarStatus,
   RateCutRadar,
@@ -215,7 +216,7 @@ function ScoreCard({ radar }: { radar: RateCutRadar }) {
           </p>
         </div>
         <span className="rounded-md bg-white/8 px-2 py-1 text-[11px] font-semibold text-zinc-300 ring-1 ring-white/10">
-          V1.7.1
+          V1.8
         </span>
       </div>
       <div className="mt-3 flex items-center justify-center">
@@ -268,6 +269,69 @@ function FirstScreenImpact({ radar }: { radar: RateCutRadar }) {
           );
         })}
       </div>
+    </section>
+  );
+}
+
+function PolicyPricingCard({ marketContext }: { marketContext?: MarketContext }) {
+  const pricing = marketContext?.policyPricing;
+  if (!pricing) return null;
+
+  const stanceLabel =
+    pricing.stance === "cut"
+      ? "偏降息"
+      : pricing.stance === "hike"
+        ? "偏加息"
+        : pricing.stance === "neutral"
+          ? "未明显降息"
+          : "待确认";
+  const stanceClass =
+    pricing.stance === "cut"
+      ? "text-emerald-700"
+      : pricing.stance === "hike"
+        ? "text-rose-700"
+        : "text-amber-700";
+
+  return (
+    <section className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold tracking-[0.16em] text-zinc-500">
+            政策定价
+          </p>
+          <h2 className={`mt-2 text-xl font-semibold ${stanceClass}`}>
+            {stanceLabel}
+          </h2>
+        </div>
+        <a
+          className="rounded-md bg-zinc-100 px-2 py-1 text-xs font-semibold text-zinc-600 ring-1 ring-zinc-200"
+          href={pricing.cmeFedWatchUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          CME
+        </a>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+        <DetailItem label="ZQ=F隐含" value={`${pricing.impliedRate}%`} />
+        <DetailItem
+          label="DFF"
+          value={
+            pricing.effectiveFedFundsRate === undefined
+              ? "数据不足"
+              : `${pricing.effectiveFedFundsRate}%`
+          }
+        />
+        <DetailItem
+          label="差值"
+          value={
+            pricing.impliedDeltaBps === undefined
+              ? "数据不足"
+              : `${pricing.impliedDeltaBps > 0 ? "+" : ""}${pricing.impliedDeltaBps}基点`
+          }
+        />
+      </div>
+      <p className="mt-3 text-xs leading-5 text-zinc-500">{pricing.note}</p>
     </section>
   );
 }
@@ -622,9 +686,9 @@ function Methodology() {
 function sourceLabel(source: DataSource): string {
   const labels: Record<DataSource, string> = {
     fred: "FRED",
-    "fred+market": "FRED + 市场报价",
+    "fred+market": "FRED + 市场/政策补充",
     "fred+nowcast": "FRED + 通胀 Nowcast",
-    "fred+market+nowcast": "FRED + 市场报价 + 通胀 Nowcast",
+    "fred+market+nowcast": "FRED + 市场/政策补充 + 通胀 Nowcast",
     partial: "部分 FRED + 模拟数据",
     "partial+nowcast": "部分 FRED + 模拟数据 + 通胀 Nowcast",
     mock: "模拟数据",
@@ -658,7 +722,11 @@ function DataNotice({
 
 export default async function Home() {
   const data = await getDashboardData();
-  const radar = calculateRateCutRadar(data.series, data.inflationNowcast);
+  const radar = calculateRateCutRadar(
+    data.series,
+    data.inflationNowcast,
+    data.marketContext,
+  );
   const brief = generateDailyBrief(radar, data.source);
   const executiveSummary = generateExecutiveSummary(radar);
 
@@ -692,6 +760,8 @@ export default async function Home() {
         </section>
 
         <DataNotice warning={data.warning} notices={data.notices} />
+
+        <PolicyPricingCard marketContext={data.marketContext} />
 
         <DailyBrief brief={brief} />
 

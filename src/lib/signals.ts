@@ -1,8 +1,10 @@
 import type {
   AssetBias,
   AssetImpact,
+  AssetMarketTrend,
   DashboardSeries,
   InflationNowcast,
+  MarketContext,
   MarketMove,
   RateCutRadar,
   RadarStatus,
@@ -957,10 +959,52 @@ function buildWhatChangedToday(
   };
 }
 
+function policyPricingRisk(marketContext?: MarketContext): boolean {
+  return marketContext?.policyPricing?.stance === "hike";
+}
+
+function policyPricingCap(score: number, marketContext?: MarketContext): number {
+  const stance = marketContext?.policyPricing?.stance;
+
+  if (stance === "hike") return Math.min(score, 49);
+  if (stance === "neutral") return Math.min(score, 79);
+  return score;
+}
+
+function trendFor(
+  marketContext: MarketContext | undefined,
+  asset: AssetImpact["asset"],
+): AssetMarketTrend | undefined {
+  return marketContext?.assetTrends.find((trend) => trend.asset === asset);
+}
+
+function biasWithMarketTrend(
+  baseBias: AssetBias,
+  trend: AssetMarketTrend | undefined,
+  volatileWhenFading = false,
+): AssetBias {
+  if (!trend || trend.trend !== "down") return baseBias;
+  if (baseBias === "bullish") return volatileWhenFading ? "volatile" : "neutral";
+  if (baseBias === "neutral" && trend.threeMonthChangePct <= -8) return "bearish";
+  return baseBias;
+}
+
+function trendSummary(trend: AssetMarketTrend | undefined): string {
+  if (!trend) return "价格趋势数据暂缺，当前只按宏观信号判断。";
+
+  return `价格趋势：1个月 ${formatPct(
+    trend.oneMonthChangePct,
+  )}，3个月 ${formatPct(trend.threeMonthChangePct)}，距6个月高点回撤 ${round(
+    trend.drawdownFromSixMonthHighPct,
+    1,
+  )}%。`;
+}
+
 function impactBiasClass(radar: {
   score: number;
   politicalCutRisk: boolean;
   healthStressRisk: boolean;
+  policyPricingRisk: boolean;
   signals: ReturnType<typeof calculateSignals>;
 }): {
   riskBeta: AssetBias;
@@ -973,6 +1017,15 @@ function impactBiasClass(radar: {
       riskBeta: "volatile",
       duration: "bearish",
       gold: "bullish",
+      btc: "volatile",
+    };
+  }
+
+  if (radar.policyPricingRisk) {
+    return {
+      riskBeta: "bearish",
+      duration: "bearish",
+      gold: "neutral",
       btc: "volatile",
     };
   }
@@ -1025,58 +1078,78 @@ function buildAssetImpact(radar: {
   score: number;
   politicalCutRisk: boolean;
   healthStressRisk: boolean;
+  policyPricingRisk: boolean;
+  marketContext?: MarketContext;
   signals: ReturnType<typeof calculateSignals>;
 }): AssetImpact[] {
   const bias = impactBiasClass(radar);
+  const hangSengTrend = trendFor(radar.marketContext, "恒生科技");
+  const nasdaqTrend = trendFor(radar.marketContext, "纳指成长");
+  const tltTrend = trendFor(radar.marketContext, "长债/TLT");
+  const goldTrend = trendFor(radar.marketContext, "黄金");
+  const btcTrend = trendFor(radar.marketContext, "BTC");
+  const hangSengBias = biasWithMarketTrend(bias.riskBeta, hangSengTrend, true);
+  const nasdaqBias = biasWithMarketTrend(bias.riskBeta, nasdaqTrend);
+  const tltBias = biasWithMarketTrend(bias.duration, tltTrend);
+  const goldBias = biasWithMarketTrend(bias.gold, goldTrend);
+  const btcBias = biasWithMarketTrend(bias.btc, btcTrend, true);
 
   return [
     {
       asset: "恒生科技",
-      bias: bias.riskBeta,
+      bias: hangSengBias,
       summary:
-        bias.riskBeta === "bullish"
-          ? "降息健康度改善时，高弹性估值修复对恒生科技更友好。"
-          : bias.riskBeta === "volatile"
-            ? "短端宽松能带来反弹，但长端不确认会让行情更颠簸。"
-            : "油价、通胀或美债未配合，高弹性中国科技仍偏脆弱。",
+        hangSengBias === "bullish"
+          ? `降息健康度改善且价格趋势配合，恒生科技估值修复更顺。${trendSummary(hangSengTrend)}`
+          : hangSengBias === "volatile"
+            ? `宏观条件边际友好，但恒生科技价格趋势没有跟上，先按高波动处理。${trendSummary(hangSengTrend)}`
+            : hangSengBias === "neutral"
+              ? `宏观条件偏友好，但价格仍在下行，先不直接判定利好。${trendSummary(hangSengTrend)}`
+              : `油价、通胀、美债或价格趋势未配合，恒生科技仍偏脆弱。${trendSummary(hangSengTrend)}`,
     },
     {
       asset: "纳指成长",
-      bias: bias.riskBeta,
+      bias: nasdaqBias,
       summary:
-        bias.riskBeta === "bullish"
-          ? "长端利率压力缓和，有利于 NASDAQ 成长股估值扩张。"
-          : bias.riskBeta === "volatile"
-            ? "成长股可做战术交易，但长端上行会压制估值。"
-            : "降息预期缺少健康确认，暂不适合追高成长久期。",
+        nasdaqBias === "bullish"
+          ? `长端利率压力缓和且 NASDAQ 成长趋势确认，估值扩张更有基础。${trendSummary(nasdaqTrend)}`
+          : nasdaqBias === "volatile"
+            ? `成长股有流动性想象，但价格趋势和长端确认不足，波动会放大。${trendSummary(nasdaqTrend)}`
+            : nasdaqBias === "neutral"
+              ? `宏观顺风存在，但 NASDAQ 成长价格趋势尚未确认，先按中性。${trendSummary(nasdaqTrend)}`
+              : `降息预期缺少健康确认或价格趋势走弱，暂不适合追高成长久期。${trendSummary(nasdaqTrend)}`,
     },
     {
       asset: "长债/TLT",
-      bias: bias.duration,
+      bias: tltBias,
       summary:
-        bias.duration === "bullish"
-          ? "美债市场认可降息路径，长久期资产获得更干净顺风。"
-          : bias.duration === "neutral"
-            ? "短端松动还不够，TLT 需要 10Y/30Y 继续确认。"
-            : "长端收益率抗拒下行，追多 TLT 的胜率下降。",
+        tltBias === "bullish"
+          ? `美债市场认可降息路径且 TLT 趋势配合，长久期资产顺风更干净。${trendSummary(tltTrend)}`
+          : tltBias === "neutral"
+            ? `短端松动还不够，TLT 需要 10Y/30Y 和价格趋势继续确认。${trendSummary(tltTrend)}`
+            : `长端收益率或价格趋势不配合，追多 TLT 的胜率下降。${trendSummary(tltTrend)}`,
     },
     {
       asset: "黄金",
-      bias: bias.gold,
+      bias: goldBias,
       summary:
-        bias.gold === "bullish"
-          ? "政治化降息或通胀黏性会增加黄金的避险和对冲价值。"
-          : "若真实利率和政策风险没有恶化，黄金不是主线资产。",
+        goldBias === "bullish"
+          ? `政治化降息、通胀黏性或价格趋势会增加黄金的对冲价值。${trendSummary(goldTrend)}`
+          : goldBias === "bearish"
+            ? `黄金价格趋势偏弱，且当前宏观主线不支持继续追高。${trendSummary(goldTrend)}`
+            : `若真实利率和政策风险没有恶化，黄金不是主线资产。${trendSummary(goldTrend)}`,
     },
     {
       asset: "BTC",
-      bias: bias.btc,
+      bias: btcBias,
       summary:
-        bias.btc === "bullish"
-          ? "流动性预期与风险偏好同向时，BTC 更容易获得弹性。"
-          : bias.btc === "volatile"
-            ? "流动性想象有支撑，但美债确认不足会放大波动。"
-            : "降息健康度偏弱时，BTC 容易受风险偏好回落拖累。",
+        btcBias === "bullish"
+          ? `流动性预期、风险偏好和 BTC 趋势同向时，弹性更可信。${trendSummary(btcTrend)}`
+          : btcBias === "volatile"
+            ? `BTC 有流动性想象，但价格趋势或政策定价不稳，先按高波动。${trendSummary(btcTrend)}`
+            : btcBias === "neutral"
+              ? `宏观条件有支撑，但 BTC 趋势尚未确认，先按中性。${trendSummary(btcTrend)}`
+              : `降息健康度或价格趋势偏弱时，BTC 容易受风险偏好回落拖累。${trendSummary(btcTrend)}`,
     },
   ];
 }
@@ -1086,14 +1159,29 @@ function assetImpactSummary(radar: {
   politicalCutRisk: boolean;
   healthStressRisk: boolean;
   healthyStatusReady: boolean;
+  policyPricingRisk: boolean;
+  marketContext?: MarketContext;
   signals: ReturnType<typeof calculateSignals>;
 }): string {
   if (radar.politicalCutRisk) {
     return "短端押注降息但长端不信，恒科、纳指成长和 BTC 可能高波动，TLT 仍需谨慎。";
   }
 
+  if (radar.policyPricingRisk) {
+    return "政策期货不支持降息叙事，风险资产和长久期资产不能只按宏观分数看多。";
+  }
+
   if (radar.healthStressRisk) {
     return "就业或信用压力升温，长债和黄金更占优，恒科、纳指成长与 BTC 需要防波动。";
+  }
+
+  const fadingAssets = radar.marketContext?.assetTrends.filter(
+    (trend) => trend.trend === "down",
+  );
+  if (fadingAssets && fadingAssets.length >= 2) {
+    return `宏观条件偏友好，但${fadingAssets
+      .map((trend) => trend.asset)
+      .join("、")}价格趋势仍弱，资产影响先降级处理。`;
   }
 
   if (radar.score >= 80 && !radar.healthyStatusReady) {
@@ -1117,8 +1205,16 @@ function assetImpactSummary(radar: {
 
 function healthyStatusGateFailures(
   signals: ReturnType<typeof calculateSignals>,
+  marketContext?: MarketContext,
 ): string[] {
   const failures: string[] = [];
+  const policyPricing = marketContext?.policyPricing;
+
+  if (policyPricing?.stance === "hike") {
+    failures.push("政策期货反而指向加息风险");
+  } else if (policyPricing?.stance === "neutral") {
+    failures.push("政策期货尚未明确押注降息");
+  }
 
   if (signals.bond.color !== "green") {
     failures.push("长端美债尚未确认");
@@ -1167,7 +1263,14 @@ function statusSummary(
   status: RadarStatus,
   healthStressRisk: boolean,
   healthyGateFailures: string[],
+  marketContext?: MarketContext,
 ): string {
+  const policyPricing = marketContext?.policyPricing;
+
+  if (policyPricing?.stance === "hike") {
+    return `政策期货隐含利率高于当前有效联邦基金利率约 ${policyPricing.impliedDeltaBps} 基点，市场并未配合降息叙事。`;
+  }
+
   if (healthStressRisk && status === "Mixed / Wait and See") {
     return "降息预期升温，但就业或信用压力也在升温，当前更像需要防守的压力降息。";
   }
@@ -1200,9 +1303,12 @@ function statusSummary(
 export function calculateRateCutRadar(
   series: DashboardSeries,
   inflationNowcast?: InflationNowcast,
+  marketContext?: MarketContext,
 ): RateCutRadar {
   const signals = calculateSignals(series, inflationNowcast);
-  const score = calculateScore(signals);
+  const rawScore = calculateScore(signals);
+  const policyRisk = policyPricingRisk(marketContext);
+  const score = policyPricingCap(rawScore, marketContext);
 
   const previousDailySeries: DashboardSeries = {
     ...series,
@@ -1217,13 +1323,16 @@ export function calculateRateCutRadar(
     ICSA: dropLatest(series.ICSA),
   };
   const previousSignals = calculateSignals(previousDailySeries, inflationNowcast);
-  const previousScore = calculateScore(previousSignals);
+  const previousScore = policyPricingCap(
+    calculateScore(previousSignals),
+    marketContext,
+  );
 
   const politicalCutRisk = signals.bond.details.politicalCutRisk === true;
   const healthStressRisk =
     signals.labor.details.recessionStress === true ||
     signals.credit.details.creditStress === true;
-  const healthyGateFailures = healthyStatusGateFailures(signals);
+  const healthyGateFailures = healthyStatusGateFailures(signals, marketContext);
   const healthyStatusReady = healthyGateFailures.length === 0;
   const status = statusForScore(
     score,
@@ -1238,6 +1347,8 @@ export function calculateRateCutRadar(
     score,
     politicalCutRisk,
     healthStressRisk,
+    policyPricingRisk: policyRisk,
+    marketContext,
     signals,
   });
 
@@ -1246,7 +1357,12 @@ export function calculateRateCutRadar(
     previousScore,
     scoreDelta: score - previousScore,
     status,
-    statusSummary: statusSummary(status, healthStressRisk, healthyGateFailures),
+    statusSummary: statusSummary(
+      status,
+      healthStressRisk,
+      healthyGateFailures,
+      marketContext,
+    ),
     signals,
     signalChanges,
     whatChanged: buildWhatChangedToday(score, previousScore, signalChanges, keyMoves),
@@ -1257,10 +1373,13 @@ export function calculateRateCutRadar(
       politicalCutRisk,
       healthStressRisk,
       healthyStatusReady,
+      policyPricingRisk: policyRisk,
+      marketContext,
       signals,
     }),
     politicalCutRisk,
     healthStressRisk,
+    policyPricingRisk: policyRisk,
   };
 }
 
